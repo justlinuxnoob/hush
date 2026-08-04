@@ -26,18 +26,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS (Apple silicon)
+          # One universal macOS build rather than one per architecture: the
+          # resulting .dmg runs natively on both Apple silicon and Intel, and it
+          # avoids depending on macos-13 runners, which are scarce enough to
+          # queue for half an hour and are being retired.
+          - name: macOS (universal)
             os: macos-14
-            target: aarch64-apple-darwin
-          - name: macOS (Intel)
-            os: macos-13
-            target: x86_64-apple-darwin
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
           - name: Linux
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            rust-targets: x86_64-unknown-linux-gnu
           - name: Windows
             os: windows-2022
             target: x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
@@ -49,9 +53,11 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf
 
+      # A universal build needs both real architectures installed; the
+      # "universal-apple-darwin" name is Tauri's, not a Rust target.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust-targets }}
 
       - uses: actions/setup-node@v4
         with:
