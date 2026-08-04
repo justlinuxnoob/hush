@@ -22,8 +22,13 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
           <h3>What it will never do</h3>
           <ul className="stack stack-2 muted" style={{ paddingLeft: "1.1rem", margin: 0 }}>
             <li>
-              <strong style={{ color: "var(--ink)" }}>Delete anything.</strong>{" "}
-              Not a single message. Hush only unsubscribes.
+              <strong style={{ color: "var(--ink)" }}>
+                Delete anything you didn't ask it to.
+              </strong>{" "}
+              Unsubscribing is all it does by default. If you want a sender's old
+              newsletters gone as well, you tick a box — and they go to your
+              Gmail Trash, where you can pull them back for 30 days. Nothing is
+              ever destroyed.
             </li>
             <li>
               <strong style={{ color: "var(--ink)" }}>Read your emails.</strong>{" "}
