@@ -136,12 +136,20 @@ pub async fn connect(
         scopes.push(SCOPE_MODIFY);
     }
 
+    let cancel = Cancel::new();
+    *state.connect_cancel.write().await = Some(cancel.clone());
+
     let granted = auth
-        .connect(&scopes, |url| {
+        .connect(&scopes, &cancel, |url| {
             tauri_plugin_opener::open_url(url, None::<&str>)
                 .map_err(|e| Error::Other(format!("Couldn't open your browser: {e}")))
         })
-        .await?;
+        .await;
+
+    // Clear the handle whatever happened, so a later attempt is not born
+    // already cancelled.
+    *state.connect_cancel.write().await = None;
+    let granted = granted?;
 
     let gmail = Arc::new(GmailClient::new(
         auth.clone() as Arc<dyn crate::gmail::TokenSource>,
@@ -284,6 +292,15 @@ pub async fn start_scan(
         }
     });
 
+    Ok(())
+}
+
+/// Give up waiting for Google's consent page.
+#[tauri::command]
+pub async fn cancel_connect(state: State<'_, AppState>) -> Result<()> {
+    if let Some(c) = state.connect_cancel.read().await.as_ref() {
+        c.cancel();
+    }
     Ok(())
 }
 

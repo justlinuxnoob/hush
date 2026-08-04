@@ -104,12 +104,6 @@ Set up your own Google project (the app walks you through it) and **leave dry
 run switched on**. Dry run reports exactly what would be sent without opening a
 socket, which is enough to check almost everything.
 
-## Screenshots
-
-The setup wizard has placeholder frames where screenshots belong. They're marked
-`SCREENSHOT:` in the source — search for `<Screenshot` to find every one. If
-you'd like to contribute real ones, that's genuinely useful and needs no Rust.
-
 ## Commit style
 
 Plain sentences. Say what changed and why the change is correct. If it touches a

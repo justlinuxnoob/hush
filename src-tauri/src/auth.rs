@@ -41,6 +41,8 @@ pub const SCOPE_MODIFY: &str = "https://www.googleapis.com/auth/gmail.modify";
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(300);
 /// Renew a little before expiry so a scan never trips over the boundary.
 const EXPIRY_MARGIN: Duration = Duration::from_secs(120);
+/// How often the consent wait wakes to check whether the user gave up.
+const CANCEL_POLL: Duration = Duration::from_millis(250);
 
 const KEYCHAIN_SERVICE: &str = "dev.hush.desktop";
 
@@ -234,7 +236,12 @@ impl GoogleAuth {
     ///
     /// `open_browser` is passed in rather than called directly so this can be
     /// driven from a test, and so the Tauri dependency stays out of this module.
-    pub async fn connect<F>(&self, scopes: &[&str], open_browser: F) -> Result<String>
+    pub async fn connect<F>(
+        &self,
+        scopes: &[&str],
+        cancel: &crate::gmail::Cancel,
+        open_browser: F,
+    ) -> Result<String>
     where
         F: FnOnce(&str) -> Result<()>,
     {
@@ -260,7 +267,7 @@ impl GoogleAuth {
         );
         open_browser(&auth_url)?;
 
-        let code = wait_for_code(listener, &state).await?;
+        let code = wait_for_code(listener, &state, cancel).await?;
         let tokens = self.exchange_code(&code, &verifier, &redirect_uri).await?;
 
         let refresh = tokens.refresh_token.ok_or_else(|| {
@@ -501,15 +508,28 @@ fn s256_challenge(verifier: &str) -> String {
 ///
 /// Browsers open speculative connections and ask for `/favicon.ico`, so this
 /// keeps listening rather than treating the first connection as the answer.
-async fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<String> {
+async fn wait_for_code(
+    listener: TcpListener,
+    expected_state: &str,
+    cancel: &crate::gmail::Cancel,
+) -> Result<String> {
     let deadline = tokio::time::Instant::now() + CONSENT_TIMEOUT;
 
     loop {
-        let accept = tokio::time::timeout_at(deadline, listener.accept()).await;
-        let Ok(accepted) = accept else {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if tokio::time::Instant::now() >= deadline {
             return Err(Error::Setup(
                 "The connection timed out waiting for Google. Try connecting again.".into(),
             ));
+        }
+
+        // Woken regularly rather than blocked on `accept` alone, so pressing
+        // Cancel is noticed within a moment instead of after five minutes.
+        let accepted = match tokio::time::timeout(CANCEL_POLL, listener.accept()).await {
+            Ok(a) => a,
+            Err(_) => continue,
         };
         let (mut stream, _) = accepted?;
 
@@ -756,7 +776,9 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
-        let task = tokio::spawn(async move { wait_for_code(listener, "the-state").await });
+        let task = tokio::spawn(async move {
+            wait_for_code(listener, "the-state", &crate::gmail::Cancel::new()).await
+        });
 
         // A browser preflight for /favicon.ico must not be mistaken for the
         // redirect; the listener has to keep waiting.
@@ -776,7 +798,9 @@ mod tests {
     async fn a_mismatched_state_is_rejected() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let task = tokio::spawn(async move { wait_for_code(listener, "expected").await });
+        let task = tokio::spawn(async move {
+            wait_for_code(listener, "expected", &crate::gmail::Cancel::new()).await
+        });
 
         let _ = reqwest::get(format!(
             "http://127.0.0.1:{port}/?code=injected&state=attacker"
@@ -791,7 +815,9 @@ mod tests {
     async fn a_refusal_on_googles_page_is_reported_plainly() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let task = tokio::spawn(async move { wait_for_code(listener, "s").await });
+        let task = tokio::spawn(async move {
+            wait_for_code(listener, "s", &crate::gmail::Cancel::new()).await
+        });
 
         let _ = reqwest::get(format!(
             "http://127.0.0.1:{port}/?error=access_denied&state=s"
@@ -801,6 +827,36 @@ mod tests {
         let err = task.await.unwrap().unwrap_err().to_string();
         assert!(err.contains("turned down"), "{err}");
         assert!(!err.contains("access_denied"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_consent_wait_can_be_given_up_on() {
+        // The freeze this fixes: nothing arrived from Google, and the app sat
+        // there for five minutes with no way out.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cancel = crate::gmail::Cancel::new();
+        let task = {
+            let cancel = cancel.clone();
+            tokio::spawn(async move { wait_for_code(listener, "state", &cancel).await })
+        };
+
+        // Nobody ever visits the redirect; the user presses Cancel instead.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        cancel.cancel();
+
+        let started = std::time::Instant::now();
+        let err = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("giving up must not hang")
+            .unwrap()
+            .unwrap_err();
+
+        assert!(matches!(err, Error::Cancelled), "{err:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "should stop promptly, took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

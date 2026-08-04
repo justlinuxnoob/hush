@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import * as api from "../api";
 import { Notice, plural } from "../components/ui";
 import {
+  errorCode,
   errorMessage,
   type PlannedAction,
   type RunReport,
@@ -23,17 +24,20 @@ export default function Confirm({
   addresses,
   onDone,
   onBack,
+  onStatusChange,
 }: {
   status: Status;
   senders: Sender[];
   addresses: string[];
   onDone: (report: RunReport) => void;
   onBack: () => void;
+  onStatusChange: (s: Status) => void;
 }) {
   const [plan, setPlan] = useState<PlannedAction[] | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [acceptedFlagged, setAcceptedFlagged] = useState(false);
   const [alsoDelete, setAlsoDelete] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -61,6 +65,27 @@ export default function Confirm({
     } catch (e) {
       setProblem(errorMessage(e));
       setBusy(false);
+    }
+  }
+
+  /**
+   * Ask Google for the tidy-up permission, here and now.
+   *
+   * This is why the connect screen no longer asks: by this point the user has
+   * seen the senders, knows how many emails are involved, and is choosing with
+   * the numbers in front of them.
+   */
+  async function askToBin() {
+    setProblem(null);
+    setAsking(true);
+    try {
+      const s = await api.connect(status.can_send, true);
+      onStatusChange(s);
+      if (s.can_delete) setAlsoDelete(true);
+    } catch (e) {
+      if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
+    } finally {
+      setAsking(false);
     }
   }
 
@@ -152,10 +177,34 @@ export default function Confirm({
           </div>
         ) : (
           binnable > 0 && (
-            <p className="muted small">
-              Want their old emails gone too? Reconnect your account and allow it
-              — Settings has the button.
-            </p>
+            <div className="card stack stack-3">
+              <div className="stack">
+                <strong>Also bin their old emails?</strong>
+                <span className="muted small">
+                  {binnable.toLocaleString()} newsletters from these senders
+                  would move to your Gmail Trash, recoverable there for 30 days.
+                  {kept > 0 && (
+                    <>
+                      {" "}
+                      Their {kept.toLocaleString()} other{" "}
+                      {kept === 1 ? "email" : "emails"} — receipts, confirmations
+                      and the like — would be left alone.
+                    </>
+                  )}{" "}
+                  Google has to grant this separately, so your browser will open
+                  once.
+                </span>
+              </div>
+              <div>
+                <button
+                  className="btn-secondary"
+                  onClick={askToBin}
+                  disabled={asking || busy}
+                >
+                  {asking ? "Waiting for your browser…" : "Allow this"}
+                </button>
+              </div>
+            </div>
           )
         )}
 

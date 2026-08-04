@@ -173,6 +173,7 @@ export default function App() {
           status={status}
           senders={senders}
           addresses={chosen}
+          onStatusChange={setStatus}
           onBack={() => setScreen("list")}
           onDone={async (r) => {
             setReport(r);

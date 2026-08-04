@@ -28,7 +28,7 @@ let status: Status = {
   email: "you@example.com",
   has_credentials: true,
   can_send: false,
-  can_delete: true,
+  can_delete: false,
   dry_run: true,
   mailto_mode: "hand_off",
   keychain_available: true,
@@ -198,7 +198,17 @@ const handlers: Record<string, (a: Args) => unknown> = {
   resume_session: () => status,
   mark_welcome_seen: () => undefined,
   save_credentials: () => undefined,
-  connect: () => status,
+  cancel_connect: () => undefined,
+  connect: (a) => {
+    // Mirrors the real flow: Google grants what was asked for.
+    status = {
+      ...status,
+      connected: true,
+      can_send: status.can_send || Boolean(a.allowSend),
+      can_delete: status.can_delete || Boolean(a.allowDelete),
+    };
+    return status;
+  },
   disconnect: () => status,
   erase_everything: () => status,
   list_senders: () => senders,

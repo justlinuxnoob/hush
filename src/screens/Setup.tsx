@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import * as api from "../api";
-import { CopyField, Notice, Screenshot, Steps } from "../components/ui";
+import { CopyField, Notice, Steps } from "../components/ui";
 import { errorMessage } from "../types";
 
 /**
@@ -106,7 +106,6 @@ export default function Setup({
                   url="https://console.cloud.google.com/projectcreate"
                   onOpen={open}
                 />
-                <Screenshot describe="Google Cloud's New Project form, with the name box filled in" />
               </>
             }
           />
@@ -132,7 +131,6 @@ export default function Setup({
                   url="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
                   onOpen={open}
                 />
-                <Screenshot describe="the Gmail API library page with the blue Enable button" />
               </>
             }
           />
@@ -160,7 +158,6 @@ export default function Setup({
                   url="https://console.cloud.google.com/auth/branding"
                   onOpen={open}
                 />
-                <Screenshot describe="the Google Auth Platform branding form with App name and support email filled in" />
               </>
             }
           />
@@ -194,7 +191,6 @@ export default function Setup({
                   Google ends the connection every seven days. When that
                   happens, Hush asks you to reconnect and it's a single click.
                 </Notice>
-                <Screenshot describe="the Audience page showing Publishing status: Testing and the Test users list" />
               </>
             }
           />
@@ -218,7 +214,6 @@ export default function Setup({
                   url="https://console.cloud.google.com/auth/clients"
                   onOpen={open}
                 />
-                <Screenshot describe="the Create OAuth client screen with Application type set to Desktop app" />
 
                 <div className="stack stack-4" style={{ marginTop: "calc(var(--step) * 4)" }}>
                   <div>

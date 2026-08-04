@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 135 passing (121 unit, 14 against a mocked Gmail API) |
+| Rust tests | 136 passing (122 unit, 14 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -191,22 +191,12 @@ installers, and pinned runner images (currently floating tags like
 `ubuntu-22.04`). The README says plainly that checksums probably won't match yet
 and explains what *can* be verified today.
 
-### Screenshot placeholders — six of them
+### The setup wizard has no screenshots
 
-All render as visible dashed frames, and each carries a description of what the
-picture should show. Search the source for `<Screenshot`:
-
-| File | Line | Should show |
-|---|---|---|
-| `src/screens/Setup.tsx` | 109 | Google Cloud's New Project form |
-| `src/screens/Setup.tsx` | 135 | The Gmail API page with the Enable button |
-| `src/screens/Setup.tsx` | 163 | The branding form, filled in |
-| `src/screens/Setup.tsx` | 197 | The Audience page showing "Testing" and test users |
-| `src/screens/Setup.tsx` | 221 | The Create OAuth client screen, "Desktop app" selected |
-| `src/screens/Connect.tsx` | 104 | Google's consent screen |
-
-The component is `Screenshot` in `src/components/ui.tsx`; replacing the frame
-with an `<img>` there handles all six at once.
+It was built with placeholder frames for them and they were removed: the written
+steps carry it on their own, and six empty boxes read as an unfinished app
+rather than a considered one. If anyone adds real ones later, one per step in
+`src/screens/Setup.tsx` is the natural place.
 
 ### Smaller gaps
 
@@ -255,6 +245,29 @@ knowing before chasing them again.
 **Still unclicked:** the setup wizard's six steps were walked but not with real
 credentials pasted, and nothing in the connect flow has been exercised, because
 that needs Google.
+
+## What real use found straight away
+
+The first person to actually run it hit two things no amount of mock testing
+would have caught, both now fixed in 0.1.1:
+
+- **The app froze on "Connect with Google".** `wait_for_code` blocked for the
+  full five-minute consent timeout with no way out, and the interface offered
+  no cancel — so anything that went wrong in the browser left a dead window.
+  The wait now wakes every 250ms to check for cancellation, there is a
+  `cancel_connect` command, and the screen has a "Stop waiting" button. A test
+  covers it.
+- **The extra permissions were asked for at the worst possible moment.** The
+  connect screen offered "bin my old emails" and "send mail as me" as tick-boxes
+  *before the user had seen a single sender*. There was no way to answer
+  sensibly, and declining meant coming back to reconnect. Both are now asked for
+  in context — the tidy-up on the confirm screen where the counts are visible,
+  the send permission when that mode is chosen in Settings — each opening
+  Google's consent page once, at the moment the user has asked for the thing.
+
+The lesson worth keeping: the mock exercised every screen and every button and
+found neither, because both are about *when* something is asked and *what
+happens when it does not answer*. Those only show up against the real thing.
 
 ## Prior art
 

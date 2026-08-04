@@ -35,6 +35,9 @@ pub struct AppState {
     pub limiter: Arc<AdaptiveLimiter>,
     /// Set while a scan is running so it can be stopped from the interface.
     pub scan_cancel: RwLock<Option<Cancel>>,
+    /// Set while waiting for Google's consent redirect, so the user can give up
+    /// rather than watching a dead window for five minutes.
+    pub connect_cancel: RwLock<Option<Cancel>>,
 }
 
 impl AppState {
@@ -44,6 +47,7 @@ impl AppState {
             session: RwLock::new(None),
             limiter: Arc::new(AdaptiveLimiter::new()),
             scan_cancel: RwLock::new(None),
+            connect_cancel: RwLock::new(None),
         }
     }
 

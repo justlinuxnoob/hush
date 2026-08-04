@@ -47,6 +47,7 @@ pub fn run() {
             commands::save_credentials,
             commands::connect,
             commands::resume_session,
+            commands::cancel_connect,
             commands::disconnect,
             commands::start_scan,
             commands::cancel_scan,

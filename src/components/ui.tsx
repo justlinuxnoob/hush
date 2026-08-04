@@ -161,19 +161,6 @@ export function CopyField({ value, label }: { value: string; label: string }) {
   );
 }
 
-/**
- * Where a screenshot belongs once someone has taken one.
- *
- * Rendered rather than left as a comment so the gaps are visible while using
- * the app, not only while reading the source.
- */
-export function Screenshot({ describe }: { describe: string }) {
-  // SCREENSHOT: replace this frame with a real image. Every call site passes a
-  // `describe` string saying what the picture should show; searching the source
-  // for "<Screenshot" lists all of them.
-  return <div className="shot">Screenshot goes here — {describe}</div>;
-}
-
 /** Format a timestamp as a plain date. */
 export function formatDate(ms: number): string {
   if (!ms) return "—";

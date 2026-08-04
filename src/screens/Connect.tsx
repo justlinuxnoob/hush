@@ -1,14 +1,17 @@
 import { useState } from "react";
 
 import * as api from "../api";
-import { Notice, Screenshot } from "../components/ui";
-import { errorMessage, type Status } from "../types";
+import { Notice } from "../components/ui";
+import { errorCode, errorMessage, type Status } from "../types";
 
 /**
- * The consent step.
+ * The consent step, and nothing else.
  *
- * The wider "send mail" permission is explained in full and left switched off.
- * Nobody should discover after the fact that an app can send mail as them.
+ * It asks for read-only access and stops there. The wider permissions — binning
+ * old mail, sending unsubscribe emails — are deliberately *not* offered here:
+ * at this point nobody has seen a single sender, so there is no way to make an
+ * informed choice, and answering "no" would mean coming back to reconnect.
+ * They're asked for later, in the moment they are actually wanted.
  */
 export default function Connect({
   status,
@@ -19,8 +22,6 @@ export default function Connect({
   onConnected: (s: Status) => void;
   onBack: () => void;
 }) {
-  const [allowSend, setAllowSend] = useState(false);
-  const [allowDelete, setAllowDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -28,11 +29,20 @@ export default function Connect({
     setProblem(null);
     setBusy(true);
     try {
-      onConnected(await api.connect(allowSend, allowDelete));
+      onConnected(await api.connect(false, false));
     } catch (e) {
-      setProblem(errorMessage(e));
+      // Giving up is a choice, not a failure, so it earns no error message.
+      if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function giveUp() {
+    try {
+      await api.cancelConnect();
+    } catch {
+      // Nothing useful to say; the wait is ending either way.
     }
   }
 
@@ -51,44 +61,16 @@ export default function Connect({
         <div className="panel stack stack-3">
           <h3>What Hush is asking for</h3>
           <p className="muted">
-            <strong style={{ color: "var(--ink)" }}>Read your mail.</strong> Hush
-            uses this to fetch the sender, subject and date of each message —
+            <strong style={{ color: "var(--ink)" }}>
+              Permission to read your mail.
+            </strong>{" "}
+            Hush uses it to fetch the sender, subject and date of each message —
             never the message itself.
           </p>
-          <p className="muted small">
-            Google words this permission broadly on its own screen. Hush's use of
-            it is narrow, and the code that proves it is one file:{" "}
-            <span className="mono">src-tauri/src/gmail.rs</span>.
+          <p className="muted">
+            That is all it asks for. It cannot delete, move or send anything with
+            this.
           </p>
-        </div>
-
-        <div className="card stack stack-4">
-          <div className="stack">
-            <h3>Optional extras</h3>
-            <span className="muted small">
-              Both are off unless you tick them, and you can change your mind
-              later by reconnecting.
-            </span>
-          </div>
-
-          <Extra
-            checked={allowDelete}
-            onChange={setAllowDelete}
-            title="Let Hush bin the old emails too"
-            detail="After unsubscribing, Hush can move that sender's past newsletters
-                    to your Gmail Trash, where they stay for 30 days. It only touches
-                    the bulk mail — receipts and order confirmations from the same
-                    sender are left exactly where they are."
-          />
-
-          <Extra
-            checked={allowSend}
-            onChange={setAllowSend}
-            title="Let Hush send mail as me"
-            detail="A few senders only accept unsubscribes by email. With this off,
-                    Hush opens a ready-written message in your own mail app and you
-                    press send. With it on, Hush sends those directly."
-          />
         </div>
 
         {!status.keychain_available && (
@@ -107,61 +89,34 @@ export default function Connect({
 
         {problem && <Notice tone="problem">{problem}</Notice>}
 
-        <Screenshot describe="Google's consent screen showing the Hush app name and the read-only Gmail permission" />
-
-        <div className="row">
-          <button className="btn-quiet" onClick={onBack} disabled={busy}>
-            Back to setup
-          </button>
-          <div className="spacer" />
-          <button className="btn-primary" onClick={go} disabled={busy} autoFocus>
-            {busy ? "Waiting for your browser…" : "Connect with Google"}
-          </button>
-        </div>
-
-        {busy && (
-          <p className="muted small">
-            Finished in the browser but nothing happened here? Close that tab and
-            press Connect again.
-          </p>
+        {busy ? (
+          <div className="stack stack-4">
+            <div className="row">
+              <span className="spinner" aria-hidden="true" />
+              <span>Waiting for you to finish in the browser…</span>
+            </div>
+            <p className="muted small">
+              Nothing happening? The tab may have been closed, or opened in a
+              window you can't see. Stop waiting and try again.
+            </p>
+            <div>
+              <button className="btn-secondary" onClick={giveUp}>
+                Stop waiting
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="row">
+            <button className="btn-quiet" onClick={onBack}>
+              Back to setup
+            </button>
+            <div className="spacer" />
+            <button className="btn-primary" onClick={go} autoFocus>
+              Connect with Google
+            </button>
+          </div>
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * One optional permission, phrased the same way each time: what it lets Hush
- * do, and what it still won't.
- */
-function Extra({
-  checked,
-  onChange,
-  title,
-  detail,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <label
-      className="row"
-      style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{ marginTop: "5px", accentColor: "var(--accent)" }}
-      />
-      <span>
-        <strong>{title}</strong>
-        <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-          {detail}
-        </span>
-      </span>
-    </label>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import * as api from "../api";
 import { Notice, Switch, formatDate } from "../components/ui";
-import { errorMessage, type Status } from "../types";
+import { errorCode, errorMessage, type Status } from "../types";
 
 export default function Settings({
   status,
@@ -31,7 +31,8 @@ export default function Settings({
       const s = await work();
       onStatus(s ?? (await api.status()));
     } catch (e) {
-      setProblem(errorMessage(e));
+      // Backing out of Google's page is a choice, not a failure.
+      if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -129,10 +130,22 @@ export default function Settings({
                   why={
                     status.can_send
                       ? "Fully automatic. Hush sends a short message from your account."
-                      : "Needs the send permission — reconnect your account and allow it."
+                      : "Fully automatic. Google has to grant this separately, so choosing it opens your browser once."
                   }
-                  onPick={() => guard(() => api.setMailtoMode("send_via_gmail"))}
-                  disabled={busy || !status.can_send}
+                  // If the permission is missing, ask for it rather than
+                  // disabling the option and telling the user to go and find it.
+                  onPick={() =>
+                    guard(async () => {
+                      if (!status.can_send) {
+                        const s = await api.connect(true, status.can_delete);
+                        if (!s.can_send) return s;
+                        await api.setMailtoMode("send_via_gmail");
+                        return await api.status();
+                      }
+                      return api.setMailtoMode("send_via_gmail");
+                    })
+                  }
+                  disabled={busy}
                 />
               </div>
             </div>
