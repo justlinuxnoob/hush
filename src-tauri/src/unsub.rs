@@ -329,6 +329,14 @@ pub struct TrashReport {
     pub failed: u64,
     /// True when the run was a rehearsal and nothing actually moved.
     pub simulated: bool,
+    /// The messages that actually moved, so the caller can drop them from the
+    /// local cache. Without this the sender would keep showing its old count
+    /// and a second tidy-up would re-attempt mail already in the bin.
+    ///
+    /// Not sent to the interface — it has no use for a list of ids, and a
+    /// thousand of them would bloat every result payload.
+    #[serde(skip)]
+    pub moved_ids: Vec<String>,
 }
 
 /// How many trash calls are in flight at once. The rate limiter sets the pace;
@@ -357,18 +365,25 @@ pub async fn trash_messages(
             trashed: ids.len() as u64,
             failed: 0,
             simulated: true,
+            // A rehearsal moved nothing, so nothing may be forgotten.
+            moved_ids: Vec::new(),
         };
     }
 
     let mut report = TrashReport::default();
     let mut queue = ids.iter().cloned();
-    let mut tasks: tokio::task::JoinSet<Result<()>> = tokio::task::JoinSet::new();
+    // The id comes back with the result so a success can be recorded against
+    // the message it belongs to.
+    let mut tasks: tokio::task::JoinSet<(String, Result<()>)> = tokio::task::JoinSet::new();
 
-    let mut spawn_next = |tasks: &mut tokio::task::JoinSet<Result<()>>| {
+    let mut spawn_next = |tasks: &mut tokio::task::JoinSet<(String, Result<()>)>| {
         if let Some(id) = queue.next() {
             let gmail = gmail.clone();
             let cancel = cancel.clone();
-            tasks.spawn(async move { gmail.trash_message(&id, &cancel).await });
+            tasks.spawn(async move {
+                let outcome = gmail.trash_message(&id, &cancel).await;
+                (id, outcome)
+            });
             true
         } else {
             false
@@ -383,14 +398,17 @@ pub async fn trash_messages(
 
     while let Some(joined) = tasks.join_next().await {
         match joined {
-            Ok(Ok(())) => report.trashed += 1,
-            Ok(Err(Error::Cancelled)) => {
+            Ok((id, Ok(()))) => {
+                report.trashed += 1;
+                report.moved_ids.push(id);
+            }
+            Ok((_, Err(Error::Cancelled))) => {
                 tasks.abort_all();
                 break;
             }
             // One message that will not move should not strand the rest; the
             // counts stay honest either way.
-            Ok(Err(e)) => {
+            Ok((_, Err(e))) => {
                 log::warn!("couldn't move a message to Trash: {e}");
                 report.failed += 1;
             }

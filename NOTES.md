@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 133 passing (119 unit, 14 against a mocked Gmail API) |
+| Rust tests | 135 passing (121 unit, 14 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -226,6 +226,57 @@ with an `<img>` there handles all six at once.
 - **`resume_session` assumes keychain storage** when restoring on launch, so a
   memory-only session that somehow restored would be labelled wrongly. Harmless
   today because a memory-only token cannot survive a restart.
+
+## What a click-through of every control found
+
+Every Tauri command was checked as registered and reachable, every button in the
+interface was checked for a handler (40 of them), and the main screens were
+driven end to end against the mock. That turned up three real things:
+
+- **Binned mail left the counts stale.** Trashing a sender's backlog moved the
+  mail at Gmail but never dropped the rows from the local cache, so the sender
+  kept showing its old count and a second tidy-up would re-attempt messages
+  already in the bin. Fixed with `Store::forget_messages`, called with the ids
+  that actually moved; a test pins the whole cycle. Verified in the interface:
+  a sender went from 612 to 122 after binning 490.
+- **`never_touch_list` was registered but never called.** Removed — protected
+  senders are already listed and un-protectable on the main screen, and an
+  unused command is surface for nothing.
+- **The demo mock was more permissive than the real backend.** It did not
+  enforce the never-touch guard and did not record outcomes, so someone working
+  on the interface could have concluded those features did nothing. Now mirrors
+  the real guards.
+
+Several other apparent failures turned out to be the test script rather than the
+app — React controlled inputs read stale immediately after a click, and the data
+file path lives in an `input` value where `innerText` cannot see it. Worth
+knowing before chasing them again.
+
+**Still unclicked:** the setup wizard's six steps were walked but not with real
+credentials pasted, and nothing in the connect flow has been exercised, because
+that needs Google.
+
+## Prior art
+
+Worth reading before changing the approach. Several open-source Gmail
+unsubscribers exist, and they made a different trade:
+
+- [justjake/gmail-unsubscribe](https://github.com/justjake/gmail-unsubscribe) —
+  Apps Script. Uses `List-Unsubscribe` including one-click, *and* falls back to
+  scraping the HTML body for links containing "unsubscribe" and firing requests
+  at them. No protection against transactional mail; the user controls it by
+  labelling threads by hand.
+- [labnol/unsubscribe-gmail](https://github.com/labnol/unsubscribe-gmail) —
+  the most widely used Apps Script version.
+- [zbowling/gmail-ai-unsub](https://github.com/zbowling/gmail-ai-unsub) — a CLI
+  that identifies marketing mail with an LLM and drives a browser.
+
+The body-scraping fallback is the interesting one: it finds senders Hush cannot,
+which is a real advantage, at the cost of reading message bodies and firing
+requests at links nobody vetted. That is precisely the trade this project
+declines — see the deliberate gap in coverage described above. Anyone arguing
+Hush should scrape bodies should read those projects first and be explicit about
+giving up the "we never read your mail" claim.
 
 ## Working on the interface without a Google account
 

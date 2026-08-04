@@ -110,9 +110,18 @@ let senders: Sender[] = [
   }),
 ];
 
+/**
+ * Mirror the guards in the real `resolve()`: a sender must still be in the list
+ * and must not be protected. Without these the mock would be more permissive
+ * than the backend, and someone testing the interface against it could conclude
+ * the never-touch list does nothing.
+ */
+function selectable(addresses: string[]): Sender[] {
+  return senders.filter((s) => addresses.includes(s.address) && !s.never_touch);
+}
+
 function plan(addresses: string[]): PlannedAction[] {
-  return senders
-    .filter((s) => addresses.includes(s.address))
+  return selectable(addresses)
     .map((s) => ({
       address: s.address,
       display_name: s.display_name,
@@ -134,8 +143,7 @@ function plan(addresses: string[]): PlannedAction[] {
 }
 
 function run(addresses: string[], deleteBacklog: boolean): RunReport {
-  const outcomes: Outcome[] = senders
-    .filter((s) => addresses.includes(s.address))
+  const outcomes: Outcome[] = selectable(addresses)
     .map((s) => ({
       address: s.address,
       display_name: s.display_name,
@@ -152,9 +160,28 @@ function run(addresses: string[], deleteBacklog: boolean): RunReport {
       link: s.method.kind === "manual_link" ? s.method.url : null,
       at_ms: Date.now(),
     }));
-  const binned = senders
-    .filter((s) => addresses.includes(s.address))
-    .reduce((n, s) => n + s.bulk_count, 0);
+  const binned = selectable(addresses).reduce((n, s) => n + s.bulk_count, 0);
+  if (!status.dry_run) {
+    // The real backend records outcomes, which is what puts the "Already
+    // handled" badge on a sender. Mirror it so the demo matches.
+    const byAddress = new Map(outcomes.map((o) => [o.address, o]));
+    senders = senders.map((s) =>
+      byAddress.has(s.address) ? { ...s, outcome: byAddress.get(s.address)! } : s
+    );
+  }
+
+  if (deleteBacklog && !status.dry_run) {
+    // The real backend forgets binned mail so counts stay true; do the same.
+    const hit = new Set(selectable(addresses).map((s) => s.address));
+    senders = senders
+      .map((s) =>
+        hit.has(s.address)
+          ? { ...s, message_count: s.message_count - s.bulk_count, bulk_count: 0 }
+          : s
+      )
+      .filter((s) => s.message_count > 0);
+  }
+
   return {
     outcomes,
     handoffs: [],
@@ -175,7 +202,6 @@ const handlers: Record<string, (a: Args) => unknown> = {
   disconnect: () => status,
   erase_everything: () => status,
   list_senders: () => senders,
-  never_touch_list: () => senders.filter((s) => s.never_touch).map((s) => s.address),
   outcomes: () => [],
   data_location: () => "~/.local/share/dev.hush.desktop/hush.sqlite3 (demo)",
   cancel_scan: () => undefined,

@@ -210,6 +210,29 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Forget messages that are no longer in the inbox.
+    ///
+    /// Called after mail is moved to Trash. Gmail's `messages.list` excludes
+    /// trashed mail, so a later scan would never re-add these — but the rows we
+    /// already hold would linger, leaving the sender showing a count that is no
+    /// longer true and letting a second tidy-up re-attempt mail already binned.
+    pub fn forget_messages(&self, account: &str, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.lock()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt =
+                tx.prepare_cached("DELETE FROM messages WHERE account = ?1 AND id = ?2")?;
+            for id in ids {
+                stmt.execute(params![account, id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     // --- senders -----------------------------------------------------------
 
     /// Build the sender list the interface shows.
@@ -884,6 +907,79 @@ mod tests {
         let sender = &s.senders(ACC).unwrap()[0];
         assert_eq!(sender.message_count, 4);
         assert_eq!(sender.bulk_count, 2, "only the bulk mail would be binned");
+    }
+
+    #[test]
+    fn after_binning_the_sender_reflects_what_is_actually_left() {
+        // The bug this guards: trash the backlog, and the sender kept showing
+        // its old count because the local rows were never dropped — so a second
+        // tidy-up would re-attempt mail already in the bin.
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://shop.example/u>");
+        s.put_messages(
+            ACC,
+            &[
+                msg("promo1", "hi@shop.example", "Sale", 1, lu),
+                msg("promo2", "hi@shop.example", "Sale again", 2, lu),
+                msg("receipt", "hi@shop.example", "Your order #1", 3, None),
+            ],
+        )
+        .unwrap();
+
+        let before = &s.senders(ACC).unwrap()[0];
+        assert_eq!(before.message_count, 3);
+        assert_eq!(before.bulk_count, 2);
+
+        // Bin the bulk mail, then forget it, as a real run does.
+        let binned = s.bulk_message_ids(ACC, "hi@shop.example").unwrap();
+        s.forget_messages(ACC, &binned).unwrap();
+
+        // The receipt survives, so the sender is still listed — but with no
+        // bulk mail left there is nothing further to bin.
+        assert_eq!(s.message_count(ACC).unwrap(), 1);
+        assert!(s
+            .bulk_message_ids(ACC, "hi@shop.example")
+            .unwrap()
+            .is_empty());
+
+        // And with no unsubscribe header left, the sender drops off the list
+        // entirely rather than lingering with a stale count.
+        assert!(
+            s.senders(ACC).unwrap().is_empty(),
+            "a sender with only receipts left is not unsubscribable"
+        );
+    }
+
+    #[test]
+    fn forgetting_is_scoped_and_safe_to_repeat() {
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://x.example/u>");
+        s.put_messages(
+            ACC,
+            &[
+                msg("mine", "a@x.example", "Hi", 1, lu),
+                msg("keep", "b@x.example", "Hi", 1, lu),
+            ],
+        )
+        .unwrap();
+        s.put_messages(
+            "other@example.com",
+            &[msg("mine", "a@x.example", "Hi", 1, lu)],
+        )
+        .unwrap();
+
+        s.forget_messages(ACC, &["mine".to_string()]).unwrap();
+        assert_eq!(s.message_count(ACC).unwrap(), 1, "only the one row went");
+        assert_eq!(
+            s.message_count("other@example.com").unwrap(),
+            1,
+            "another account's identically-named message is untouched"
+        );
+
+        // Repeating it, or forgetting nothing, must not error.
+        s.forget_messages(ACC, &["mine".to_string()]).unwrap();
+        s.forget_messages(ACC, &[]).unwrap();
+        assert_eq!(s.message_count(ACC).unwrap(), 1);
     }
 
     #[test]

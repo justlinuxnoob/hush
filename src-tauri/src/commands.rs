@@ -311,12 +311,6 @@ pub async fn set_never_touch(
     state.store.set_never_touch(&account, &address, never)
 }
 
-#[tauri::command]
-pub async fn never_touch_list(state: State<'_, AppState>) -> Result<Vec<String>> {
-    let account = state.account_or_stored().await?;
-    state.store.never_touch(&account)
-}
-
 // --- unsubscribing --------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -441,7 +435,15 @@ async fn tidy_up(
     }
 
     let cancel = Cancel::new();
-    Ok(trash_messages(&session.gmail, &ids, dry_run, &cancel).await)
+    let report = trash_messages(&session.gmail, &ids, dry_run, &cancel).await;
+
+    // Drop what actually moved, so the sender's count reflects reality straight
+    // away and a second tidy-up does not re-attempt mail already in the bin.
+    // A rehearsal moved nothing, so it forgets nothing.
+    if !dry_run {
+        state.store.forget_messages(account, &report.moved_ids)?;
+    }
+    Ok(report)
 }
 
 /// Open each prefilled unsubscribe mail in the user's own mail app.
