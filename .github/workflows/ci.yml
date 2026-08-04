@@ -89,11 +89,26 @@ jobs:
             exit 1
           fi
 
+      # Matches the query parameter itself. A looser search hits the test that
+      # enforces this very rule, and a check that cries wolf gets ignored.
       - name: Message bodies are never requested
         run: |
-          if grep -rn 'format.*\(full\|raw\)' src-tauri/src/gmail.rs \
-               | grep -v '^\s*//' | grep -v 'must only ever request'; then
+          bad=$(grep -nE '\("format", *"' src-tauri/src/gmail.rs \
+                | grep -v '"format", "metadata"' || true)
+          if [ -n "$bad" ]; then
             echo "::error::gmail.rs may be asking for message bodies."
+            echo "$bad"
+            exit 1
+          fi
+
+      # Trashing is recoverable and opt-in; permanent deletion is neither, and
+      # the app must not even hold a permission that allows it.
+      - name: Nothing can be permanently deleted
+        run: |
+          bad=$(grep -rnE 'batchDelete|messages/delete|mail\.google\.com' src-tauri/src/ || true)
+          if [ -n "$bad" ]; then
+            echo "::error::a permanent-deletion path or full-access scope appeared."
+            echo "$bad"
             exit 1
           fi
 

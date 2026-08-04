@@ -23,6 +23,7 @@ pub const COST_MESSAGES_LIST: f64 = 5.0;
 pub const COST_MESSAGES_GET: f64 = 20.0;
 pub const COST_HISTORY_LIST: f64 = 2.0;
 pub const COST_MESSAGES_SEND: f64 = 100.0;
+pub const COST_MESSAGES_TRASH: f64 = 20.0;
 pub const COST_PROFILE: f64 = 1.0;
 
 /// Start well under any documented ceiling. A scan that begins politely and

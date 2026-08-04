@@ -33,6 +33,7 @@ export default function Confirm({
   const [plan, setPlan] = useState<PlannedAction[] | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [acceptedFlagged, setAcceptedFlagged] = useState(false);
+  const [alsoDelete, setAlsoDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -42,6 +43,8 @@ export default function Confirm({
   const byEmail = chosen.filter((s) => s.method.kind === "mailto");
   const manual = chosen.filter((s) => s.method.kind === "manual_link");
   const totalMail = chosen.reduce((n, s) => n + s.message_count, 0);
+  const binnable = chosen.reduce((n, s) => n + s.bulk_count, 0);
+  const kept = totalMail - binnable;
 
   useEffect(() => {
     api
@@ -54,7 +57,7 @@ export default function Confirm({
     setProblem(null);
     setBusy(true);
     try {
-      onDone(await api.runUnsubscribe(addresses));
+      onDone(await api.runUnsubscribe(addresses, alsoDelete));
     } catch (e) {
       setProblem(errorMessage(e));
       setBusy(false);
@@ -114,6 +117,47 @@ export default function Confirm({
             senders={manual}
           />
         </div>
+
+        {status.can_delete ? (
+          <div className="card stack stack-3">
+            <label
+              className="row"
+              style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
+            >
+              <input
+                type="checkbox"
+                checked={alsoDelete}
+                onChange={(e) => setAlsoDelete(e.target.checked)}
+                style={{ marginTop: "5px", accentColor: "var(--accent)" }}
+              />
+              <span>
+                <strong>
+                  Also bin their old emails
+                  {binnable > 0 && ` (${binnable.toLocaleString()})`}
+                </strong>
+                <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
+                  Moves their past newsletters to your Gmail Trash, where they
+                  stay for 30 days in case you change your mind.
+                  {kept > 0 && (
+                    <>
+                      {" "}
+                      {kept.toLocaleString()} other{" "}
+                      {kept === 1 ? "email" : "emails"} from these senders —
+                      receipts, confirmations and the like — will be left alone.
+                    </>
+                  )}
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : (
+          binnable > 0 && (
+            <p className="muted small">
+              Want their old emails gone too? Reconnect your account and allow it
+              — Settings has the button.
+            </p>
+          )
+        )}
 
         {flagged.length > 0 && (
           <div className="notice notice-caution stack stack-3">
@@ -178,6 +222,8 @@ export default function Confirm({
               ? "Working…"
               : status.dry_run
                 ? "Run the rehearsal"
+                : alsoDelete
+                ? `Unsubscribe and bin ${plural(binnable, "email")}`
                 : `Unsubscribe from ${plural(chosen.length, "sender")}`}
           </button>
         </div>

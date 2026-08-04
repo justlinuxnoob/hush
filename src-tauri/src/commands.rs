@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auth::{
-    ClientCredentials, GoogleAuth, Keychain, TokenStorage, SCOPE_READONLY, SCOPE_SEND,
+    ClientCredentials, GoogleAuth, Keychain, TokenStorage, SCOPE_MODIFY, SCOPE_READONLY, SCOPE_SEND,
 };
 use crate::error::{Error, Result};
 use crate::gmail::{Cancel, GmailClient};
@@ -19,7 +19,10 @@ use crate::model::{Outcome, ScanDepth, ScanProgress, Sender};
 use crate::scan::Scanner;
 use crate::state::{AppState, Session, SETTING_ACCOUNT, SETTING_SEEN_WELCOME};
 use crate::store::Store;
-use crate::unsub::{Executor, Handoff, MailtoMode, PlannedAction, RunReport, UnsubRequest};
+use crate::unsub::{
+    trash_messages, Executor, Handoff, MailtoMode, PlannedAction, RunReport, TrashReport,
+    UnsubRequest,
+};
 
 /// Emitted repeatedly while a scan runs.
 pub const EVENT_SCAN_PROGRESS: &str = "scan-progress";
@@ -30,6 +33,8 @@ pub struct Status {
     pub email: Option<String>,
     pub has_credentials: bool,
     pub can_send: bool,
+    /// Whether Hush may move old mail to Trash. Opt-in, and off by default.
+    pub can_delete: bool,
     pub dry_run: bool,
     pub mailto_mode: MailtoMode,
     /// False on machines with no working secret store; the interface warns that
@@ -68,6 +73,7 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
         email,
         has_credentials: state.credentials()?.is_some(),
         can_send: session.as_ref().is_some_and(|s| s.can_send),
+        can_delete: session.as_ref().is_some_and(|s| s.can_delete),
         dry_run: state.dry_run(),
         mailto_mode: state.mailto_mode(),
         keychain_available: Keychain::is_available(),
@@ -107,21 +113,28 @@ pub async fn save_credentials(
 
 /// Run the consent flow in the user's real browser.
 ///
-/// `allow_send` is passed explicitly by the interface after it has explained,
-/// in plain words, what the wider permission is for. It is never inferred.
+/// `allow_send` and `allow_delete` are passed explicitly by the interface after
+/// it has explained, in plain words, what each wider permission is for. Neither
+/// is ever inferred, and both default to off.
 #[tauri::command]
-pub async fn connect(state: State<'_, AppState>, allow_send: bool) -> Result<Status> {
+pub async fn connect(
+    state: State<'_, AppState>,
+    allow_send: bool,
+    allow_delete: bool,
+) -> Result<Status> {
     let creds = state
         .credentials()?
         .ok_or_else(|| Error::Setup("Finish the setup steps first.".into()))?;
     creds.validate()?;
 
     let auth = GoogleAuth::new(creds)?;
-    let scopes: Vec<&str> = if allow_send {
-        vec![SCOPE_READONLY, SCOPE_SEND]
-    } else {
-        vec![SCOPE_READONLY]
-    };
+    let mut scopes: Vec<&str> = vec![SCOPE_READONLY];
+    if allow_send {
+        scopes.push(SCOPE_SEND);
+    }
+    if allow_delete {
+        scopes.push(SCOPE_MODIFY);
+    }
 
     let granted = auth
         .connect(&scopes, |url| {
@@ -143,6 +156,7 @@ pub async fn connect(state: State<'_, AppState>, allow_send: bool) -> Result<Sta
     // Trust what Google actually granted, not what we asked for. A user can
     // approve some permissions and decline others on the consent screen.
     let can_send = granted.contains("gmail.send");
+    let can_delete = granted.contains("gmail.modify");
 
     *state.session.write().await = Some(Session {
         email,
@@ -150,6 +164,7 @@ pub async fn connect(state: State<'_, AppState>, allow_send: bool) -> Result<Sta
         gmail,
         storage,
         can_send,
+        can_delete,
     });
 
     status(state).await
@@ -185,7 +200,11 @@ pub async fn resume_session(state: State<'_, AppState>) -> Result<Status> {
                 auth,
                 gmail,
                 storage: TokenStorage::Keychain,
+                // A restored session cannot know what was granted without
+                // asking, so it assumes the narrowest. Reconnecting restores
+                // the extras.
                 can_send: false,
+                can_delete: false,
             });
         }
         Err(Error::Unauthorized) => {}
@@ -347,10 +366,16 @@ pub async fn plan_unsubscribe(
     Ok(executor.plan(&requests))
 }
 
+/// Unsubscribe from the chosen senders, and optionally clear out their backlog.
+///
+/// `delete_backlog` is a separate, per-run decision. Unsubscribing is the point
+/// of the app; binning old mail is an extra the user asks for each time, never
+/// something that rides along with a previous choice.
 #[tauri::command]
 pub async fn run_unsubscribe(
     state: State<'_, AppState>,
     selection: Selection,
+    delete_backlog: bool,
 ) -> Result<RunReport> {
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
@@ -370,7 +395,11 @@ pub async fn run_unsubscribe(
         executor = executor.with_gmail(session.gmail.clone());
     }
 
-    let report = executor.run(&requests).await;
+    let mut report = executor.run(&requests).await;
+
+    if delete_backlog {
+        report.trash = Some(tidy_up(&state, &account, &requests, dry_run).await?);
+    }
 
     // A dry run leaves no trace: recording simulated outcomes would make the
     // list look acted-upon when nothing happened.
@@ -382,6 +411,37 @@ pub async fn run_unsubscribe(
     }
 
     Ok(report)
+}
+
+/// Move the chosen senders' bulk mail to Trash.
+///
+/// Only mail that carried an unsubscribe header is collected, by
+/// [`Store::bulk_message_ids`] — so a receipt from a shop you just
+/// unsubscribed from stays where it is. `resolve` has already dropped anything
+/// on the never-touch list before this is reached.
+async fn tidy_up(
+    state: &AppState,
+    account: &str,
+    requests: &[UnsubRequest],
+    dry_run: bool,
+) -> Result<TrashReport> {
+    let session = state.session.read().await;
+    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    if !session.can_delete {
+        return Err(Error::Setup(
+            "Hush doesn't have permission to move mail to Trash yet. Reconnect \
+             your account and allow it."
+                .into(),
+        ));
+    }
+
+    let mut ids = Vec::new();
+    for r in requests {
+        ids.extend(state.store.bulk_message_ids(account, &r.address)?);
+    }
+
+    let cancel = Cancel::new();
+    Ok(trash_messages(&session.gmail, &ids, dry_run, &cancel).await)
 }
 
 /// Open each prefilled unsubscribe mail in the user's own mail app.

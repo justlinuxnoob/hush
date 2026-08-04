@@ -39,10 +39,10 @@
     ],
     "category": "Utility",
     "shortDescription": "Quietly unsubscribe from bulk email",
-    "longDescription": "Hush finds every sender that mails you in bulk and lets you unsubscribe from the ones you pick. It runs entirely on your computer, uses your own Google credentials, never reads message bodies, and never deletes anything.",
+    "longDescription": "Hush finds every sender that mails you in bulk and lets you unsubscribe from the ones you pick. It runs entirely on your computer, uses your own Google credentials, and never reads message bodies. It can optionally move a sender's old newsletters to Trash, and never permanently deletes anything.",
     "copyright": "MIT licensed",
     "publisher": "Hush contributors",
-    "homepage": "https://github.com/OWNER/hush",
+    "homepage": "https://github.com/justlinuxnoob/hush",
     "licenseFile": "../LICENSE",
     "linux": {
       "deb": {

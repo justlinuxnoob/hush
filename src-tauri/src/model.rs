@@ -103,6 +103,10 @@ pub struct Sender {
     pub address: String,
     pub display_name: String,
     pub message_count: u32,
+    /// How many of those carried an unsubscribe header — the ones the tidy-up
+    /// feature would move to Trash. Always at most `message_count`; the
+    /// difference is receipts and one-off mail, which are never touched.
+    pub bulk_count: u32,
     pub first_seen_ms: i64,
     pub last_seen_ms: i64,
     /// Human-readable cadence, e.g. "about 4 a week".

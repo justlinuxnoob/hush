@@ -699,6 +699,31 @@ input.mono {
   text-transform: uppercase;
 }
 
+/* Per-row actions are noise on every line at once, so they stay invisible
+   until the row is hovered or something inside it takes keyboard focus.
+   `pointer-events` is dropped with the opacity so an invisible button can
+   never be clicked by accident. */
+.sender-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.sender:hover .sender-actions,
+.sender:focus-within .sender-actions,
+.sender.is-selected .sender-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Touch and keyboard-only users get no hover, so never hide them there. */
+@media (hover: none) {
+  .sender-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .warn-note {
   margin-top: calc(var(--step) * 2);
   padding: calc(var(--step) * 2) calc(var(--step) * 3);

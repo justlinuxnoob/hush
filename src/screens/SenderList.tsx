@@ -273,7 +273,10 @@ export default function SenderList({
                   </div>
                 )}
 
-                <div className="row row-tight" style={{ marginTop: "calc(var(--step) * 1.5)" }}>
+                <div
+                  className="row row-tight sender-actions"
+                  style={{ marginTop: "calc(var(--step) * 1.5)" }}
+                >
                   {s.sample_subjects.length > 0 && (
                     <button
                       className="btn-quiet btn-small"

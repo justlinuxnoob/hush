@@ -32,6 +32,10 @@ const REVOKE_ENDPOINT: &str = "https://oauth2.googleapis.com/revoke";
 
 pub const SCOPE_READONLY: &str = "https://www.googleapis.com/auth/gmail.readonly";
 pub const SCOPE_SEND: &str = "https://www.googleapis.com/auth/gmail.send";
+/// Needed to move mail to Trash. Google offers nothing narrower — there is no
+/// "trash only" permission — so this is requested only when the user has asked
+/// for the tidy-up feature, never by default.
+pub const SCOPE_MODIFY: &str = "https://www.googleapis.com/auth/gmail.modify";
 
 /// How long we keep the loopback listener open waiting for the user to finish.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -621,8 +625,7 @@ mod tests {
     /// tripping over these lines — see .github/workflows/ci.yml.
     fn creds() -> ClientCredentials {
         ClientCredentials {
-            client_id: "not-a-real-client-id-used-only-by-tests.apps.googleusercontent.com"
-                .into(),
+            client_id: "not-a-real-client-id-used-only-by-tests.apps.googleusercontent.com".into(),
             client_secret: "GOCSPX-not-a-real-secret-for-tests".into(),
         }
     }

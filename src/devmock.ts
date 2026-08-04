@@ -28,6 +28,7 @@ let status: Status = {
   email: "you@example.com",
   has_credentials: true,
   can_send: false,
+  can_delete: true,
   dry_run: true,
   mailto_mode: "hand_off",
   keychain_available: true,
@@ -51,6 +52,9 @@ function sender(
     address,
     display_name: name,
     message_count: count,
+    // Most bulk mail carries the header; a slice of it doesn't, standing in for
+    // the receipts a shop sends from the same address.
+    bulk_count: Math.max(1, Math.round(count * 0.8)),
     first_seen_ms: now - 400 * DAY,
     last_seen_ms: now - 2 * DAY,
     frequency: "about 3 a week",
@@ -129,7 +133,7 @@ function plan(addresses: string[]): PlannedAction[] {
     }));
 }
 
-function run(addresses: string[]): RunReport {
+function run(addresses: string[], deleteBacklog: boolean): RunReport {
   const outcomes: Outcome[] = senders
     .filter((s) => addresses.includes(s.address))
     .map((s) => ({
@@ -148,7 +152,16 @@ function run(addresses: string[]): RunReport {
       link: s.method.kind === "manual_link" ? s.method.url : null,
       at_ms: Date.now(),
     }));
-  return { outcomes, handoffs: [] };
+  const binned = senders
+    .filter((s) => addresses.includes(s.address))
+    .reduce((n, s) => n + s.bulk_count, 0);
+  return {
+    outcomes,
+    handoffs: [],
+    trash: deleteBacklog
+      ? { trashed: binned, failed: 0, simulated: status.dry_run }
+      : null,
+  };
 }
 
 type Args = Record<string, unknown>;
@@ -186,7 +199,8 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return undefined;
   },
   plan_unsubscribe: (a) => plan((a.selection as { addresses: string[] }).addresses),
-  run_unsubscribe: (a) => run((a.selection as { addresses: string[] }).addresses),
+  run_unsubscribe: (a) =>
+    run((a.selection as { addresses: string[] }).addresses, Boolean(a.deleteBacklog)),
   start_scan: () => {
     // Pretend to walk a mailbox so the progress screen can be looked at.
     let scanned = 0;

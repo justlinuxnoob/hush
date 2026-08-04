@@ -245,6 +245,23 @@ impl GmailClient {
         })
     }
 
+    /// Move one message to Gmail's Trash, where it stays recoverable for 30
+    /// days. Requires the modify permission, which the user opts into.
+    ///
+    /// The dedicated endpoint is used rather than adding a `TRASH` label
+    /// through `batchModify` — batching a thousand at a time would be far
+    /// cheaper in quota, but whether the API accepts `TRASH` that way is
+    /// disputed, and a disputed reading is not something to lean on when the
+    /// operation removes someone's mail.
+    pub async fn trash_message(&self, id: &str, cancel: &Cancel) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base, id);
+        self.request(crate::ratelimit::COST_MESSAGES_TRASH, cancel, |token| {
+            self.http.post(&url).bearer_auth(token)
+        })
+        .await
+        .map(|_| ())
+    }
+
     /// Send a raw RFC 5322 message. Only used for `mailto:` unsubscribes, and
     /// only when the user has granted the send permission.
     pub async fn send_raw(&self, raw_rfc822: &str) -> Result<()> {

@@ -20,6 +20,7 @@ export default function Connect({
   onBack: () => void;
 }) {
   const [allowSend, setAllowSend] = useState(false);
+  const [allowDelete, setAllowDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -27,7 +28,7 @@ export default function Connect({
     setProblem(null);
     setBusy(true);
     try {
-      onConnected(await api.connect(allowSend));
+      onConnected(await api.connect(allowSend, allowDelete));
     } catch (e) {
       setProblem(errorMessage(e));
     } finally {
@@ -61,28 +62,33 @@ export default function Connect({
           </p>
         </div>
 
-        <div className="card stack stack-3">
-          <label
-            className="row"
-            style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
-          >
-            <input
-              type="checkbox"
-              checked={allowSend}
-              onChange={(e) => setAllowSend(e.target.checked)}
-              style={{ marginTop: "5px", accentColor: "var(--accent)" }}
-            />
-            <span>
-              <strong>Also let Hush send mail as me</strong>
-              <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-                A few senders only accept unsubscribes by email. With this off —
-                which is the sensible default — Hush opens a ready-written
-                message in your own mail app and you press send. With it on, Hush
-                sends those directly. It's a much bigger permission, and you can
-                change your mind later.
-              </span>
+        <div className="card stack stack-4">
+          <div className="stack">
+            <h3>Optional extras</h3>
+            <span className="muted small">
+              Both are off unless you tick them, and you can change your mind
+              later by reconnecting.
             </span>
-          </label>
+          </div>
+
+          <Extra
+            checked={allowDelete}
+            onChange={setAllowDelete}
+            title="Let Hush bin the old emails too"
+            detail="After unsubscribing, Hush can move that sender's past newsletters
+                    to your Gmail Trash, where they stay for 30 days. It only touches
+                    the bulk mail — receipts and order confirmations from the same
+                    sender are left exactly where they are."
+          />
+
+          <Extra
+            checked={allowSend}
+            onChange={setAllowSend}
+            title="Let Hush send mail as me"
+            detail="A few senders only accept unsubscribes by email. With this off,
+                    Hush opens a ready-written message in your own mail app and you
+                    press send. With it on, Hush sends those directly."
+          />
         </div>
 
         {!status.keychain_available && (
@@ -121,5 +127,41 @@ export default function Connect({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One optional permission, phrased the same way each time: what it lets Hush
+ * do, and what it still won't.
+ */
+function Extra({
+  checked,
+  onChange,
+  title,
+  detail,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <label
+      className="row"
+      style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ marginTop: "5px", accentColor: "var(--accent)" }}
+      />
+      <span>
+        <strong>{title}</strong>
+        <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
+          {detail}
+        </span>
+      </span>
+    </label>
   );
 }

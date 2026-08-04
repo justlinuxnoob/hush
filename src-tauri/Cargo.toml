@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Quietly unsubscribe from bulk email"
 authors = ["Hush contributors"]
 license = "MIT"
-repository = "https://github.com/OWNER/hush"
+repository = "https://github.com/justlinuxnoob/hush"
 edition = "2021"
 rust-version = "1.82"
 

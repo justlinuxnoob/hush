@@ -1,13 +1,18 @@
 //! Carrying out the unsubscribes the user picked.
 //!
-//! Three rules govern this module:
+//! Four rules govern this module:
 //!
-//! * **Nothing is ever deleted.** Hush unsubscribes; it does not touch mail.
 //! * **A bare link is never fired automatically.** Only RFC 8058 one-click
 //!   endpoints get a POST, because only those have promised that a POST means
 //!   "unsubscribe" and nothing else. Everything else goes to the human.
 //! * **Dry run means dry run.** In dry-run mode no socket is opened and no mail
 //!   is sent; the outcomes describe exactly what would have happened.
+//! * **Clearing out old mail is opt-in, and only ever moves it to Trash.**
+//!   Unsubscribing is the point; tidying up the backlog is an extra the user
+//!   asks for each time. Gmail keeps trashed mail for 30 days, so a mistake
+//!   stays recoverable without our help.
+//! * **Nothing is ever permanently deleted.** There is no code path for it, and
+//!   Hush never requests a permission that would allow it.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -82,6 +87,8 @@ pub struct RunReport {
     pub outcomes: Vec<Outcome>,
     /// Draft mails for the interface to open, in order.
     pub handoffs: Vec<Handoff>,
+    /// Present only when the user asked for their old mail to be cleared out.
+    pub trash: Option<TrashReport>,
 }
 
 impl Executor {
@@ -313,6 +320,93 @@ impl Executor {
             status.as_u16()
         )))
     }
+}
+
+/// What happened when clearing out a sender's old mail.
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct TrashReport {
+    pub trashed: u64,
+    pub failed: u64,
+    /// True when the run was a rehearsal and nothing actually moved.
+    pub simulated: bool,
+}
+
+/// How many trash calls are in flight at once. The rate limiter sets the pace;
+/// this only bounds how many are waiting on the network together.
+const TRASH_CONCURRENCY: usize = 8;
+
+/// Move a set of messages to Gmail's Trash.
+///
+/// The caller decides which ids these are, and the only caller
+/// ([`crate::store::Store::bulk_message_ids`]) selects messages that carried an
+/// unsubscribe header. Nothing here re-derives that, so if you add another
+/// caller, read that function's documentation first.
+///
+/// Trash, never permanent deletion: Gmail keeps trashed mail for 30 days, so a
+/// mistake here is recoverable by the user without our help. Hush has no code
+/// path that permanently deletes anything, and does not hold a permission that
+/// would let it.
+pub async fn trash_messages(
+    gmail: &Arc<GmailClient>,
+    ids: &[String],
+    dry_run: bool,
+    cancel: &crate::gmail::Cancel,
+) -> TrashReport {
+    if dry_run {
+        return TrashReport {
+            trashed: ids.len() as u64,
+            failed: 0,
+            simulated: true,
+        };
+    }
+
+    let mut report = TrashReport::default();
+    let mut queue = ids.iter().cloned();
+    let mut tasks: tokio::task::JoinSet<Result<()>> = tokio::task::JoinSet::new();
+
+    let mut spawn_next = |tasks: &mut tokio::task::JoinSet<Result<()>>| {
+        if let Some(id) = queue.next() {
+            let gmail = gmail.clone();
+            let cancel = cancel.clone();
+            tasks.spawn(async move { gmail.trash_message(&id, &cancel).await });
+            true
+        } else {
+            false
+        }
+    };
+
+    for _ in 0..TRASH_CONCURRENCY {
+        if !spawn_next(&mut tasks) {
+            break;
+        }
+    }
+
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Ok(())) => report.trashed += 1,
+            Ok(Err(Error::Cancelled)) => {
+                tasks.abort_all();
+                break;
+            }
+            // One message that will not move should not strand the rest; the
+            // counts stay honest either way.
+            Ok(Err(e)) => {
+                log::warn!("couldn't move a message to Trash: {e}");
+                report.failed += 1;
+            }
+            Err(e) => {
+                log::warn!("a trash task ended unexpectedly: {e}");
+                report.failed += 1;
+            }
+        }
+        if cancel.is_cancelled() {
+            tasks.abort_all();
+            break;
+        }
+        spawn_next(&mut tasks);
+    }
+
+    report
 }
 
 /// Refuse to send a request to anything that is not a public internet host.
@@ -818,5 +912,133 @@ mod tests {
     #[test]
     fn the_default_mailto_mode_asks_for_no_extra_permission() {
         assert_eq!(MailtoMode::default(), MailtoMode::HandOff);
+    }
+
+    // --- tidying up --------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_dry_run_bins_nothing() {
+        let server = wiremock::MockServer::start().await;
+        // Any request at all to the mock server fails this test.
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        );
+
+        let ids: Vec<String> = (0..25).map(|i| format!("m{i}")).collect();
+        let report = trash_messages(&gmail, &ids, true, &crate::gmail::Cancel::new()).await;
+
+        assert!(report.simulated);
+        assert_eq!(report.trashed, 25, "reports what it would have moved");
+        assert_eq!(report.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn trashing_calls_the_trash_endpoint_once_per_message() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path_regex(
+                r"^/gmail/v1/users/me/messages/[^/]+/trash$",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("{}"))
+            .expect(3)
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        );
+
+        let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let report = trash_messages(&gmail, &ids, false, &crate::gmail::Cancel::new()).await;
+
+        assert!(!report.simulated);
+        assert_eq!(report.trashed, 3);
+        assert_eq!(report.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn one_message_that_will_not_move_does_not_strand_the_rest() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::path(
+            "/gmail/v1/users/me/messages/bad/trash",
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("nope"))
+        .mount(&server)
+        .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        );
+
+        let ids = vec!["ok1".into(), "bad".into(), "ok2".into()];
+        let report = trash_messages(&gmail, &ids, false, &crate::gmail::Cancel::new()).await;
+
+        assert_eq!(report.trashed, 2);
+        assert_eq!(report.failed, 1);
+    }
+
+    #[tokio::test]
+    async fn an_empty_list_is_a_no_op() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::any())
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::default()),
+            )
+            .unwrap(),
+        );
+        let report = trash_messages(&gmail, &[], false, &crate::gmail::Cancel::new()).await;
+        assert_eq!(report.trashed, 0);
+        assert_eq!(report.failed, 0);
+    }
+
+    /// A token source for tests that never needs to renew anything.
+    struct NoTokens;
+
+    impl crate::gmail::TokenSource for NoTokens {
+        fn access_token(
+            &self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>>
+        {
+            Box::pin(async { Ok("test-token".to_string()) })
+        }
+        fn force_refresh(
+            &self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>>
+        {
+            Box::pin(async { Ok("test-token".to_string()) })
+        }
     }
 }

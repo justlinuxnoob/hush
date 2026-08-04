@@ -8,7 +8,8 @@ A desktop app that finds everyone who mails you in bulk and unsubscribes from
 the ones you pick — without ever risking your receipts, order confirmations, or
 password resets.
 
-No server. No telemetry. Your own Google credentials. Nothing is ever deleted.
+No server. No telemetry. Your own Google credentials. Nothing is ever
+permanently deleted.
 
 </div>
 
@@ -21,9 +22,15 @@ No server. No telemetry. Your own Google credentials. Nothing is ever deleted.
 2. Reads the **sender, subject and date** of your messages. Never the contents.
 3. Groups them by sender, showing how much each one sends and how often.
 4. Unsubscribes from the ones you tick.
+5. Optionally clears out their old newsletters, if you ask it to.
 
-It does not delete mail, archive mail, label mail, or move mail. It has no way
-to: the permission it asks for is read-only unless you explicitly grant more.
+It's a one-shot tool. Run it, tick the senders you're done with, close it. There
+is no background service, nothing is filtered or blocked, and you can uninstall
+it straight afterwards — the unsubscribes stay done.
+
+By default the permission it asks Google for is **read-only**, so it *cannot*
+delete, archive, label or move anything. The tidy-up below is opt-in, and even
+then only ever moves mail to Trash.
 
 ## The safety mechanism
 
@@ -75,6 +82,32 @@ Hush will not follow redirects on a one-click endpoint (RFC 8058 forbids them),
 sends no cookies, and refuses any unsubscribe URL that resolves to your own
 network rather than the public internet.
 
+## Clearing out the backlog
+
+Unsubscribing stops the next newsletter. It does nothing about the 600 already
+sitting in your inbox, so Hush can bin those too — but only if you ask, twice:
+once when connecting (it needs a wider Google permission, and it's a tick-box
+that starts off), and again on the confirmation screen before each run.
+
+Two things make it safe rather than alarming:
+
+**It only bins mail that carried an unsubscribe header.** This is the same gate
+that decides who's unsubscribable, reused. A shop that sends you marketing *and*
+order confirmations from one address has the header on the marketing and not on
+the receipts — so the marketing goes and the receipts stay. The confirmation
+screen tells you the split before you commit: *"Also bin their old emails (658)
+… 164 other emails from these senders — receipts, confirmations and the like —
+will be left alone."*
+
+**It moves mail to Trash, never deletes it.** Gmail keeps trashed mail for 30
+days, so a mistake is yours to undo without needing us. Hush has no code path
+that permanently deletes anything, and never requests a permission that would
+let it — `gmail.modify` grants trashing but *not* permanent deletion, which is
+exactly why it's the one used.
+
+If you skip the permission, everything else works exactly the same. The tick-box
+is simply absent.
+
 ## What touches what
 
 **Leaves your computer:** requests to `googleapis.com` and `accounts.google.com`,
@@ -103,7 +136,20 @@ memory for the session and tells you so, rather than quietly writing it to a
 file.
 
 Settings → *Erase everything* revokes access with Google, clears the keychain,
-and deletes the database.
+and deletes the database. Your mail is untouched by it — that button only clears
+what's on this computer.
+
+### The permissions Hush asks for
+
+| Permission | When | What it allows |
+|---|---|---|
+| `gmail.readonly` | Always | Reading message metadata. Cannot change anything. |
+| `gmail.modify` | Only if you tick "bin the old emails" | Moving mail to Trash. **Not** permanent deletion. |
+| `gmail.send` | Only if you tick "send mail as me" | Sending the handful of unsubscribes that only work by email. |
+
+Hush trusts what Google actually granted rather than what it asked for, so
+declining an extra on the consent screen leaves that feature switched off rather
+than failing later.
 
 ## Getting your Google credentials
 
@@ -142,7 +188,7 @@ authorisation response to the session that asked for it.
 
 ## Install
 
-Download from [Releases](https://github.com/OWNER/hush/releases). Nothing else
+Download from [Releases](https://github.com/justlinuxnoob/hush/releases). Nothing else
 is required — no Node, no Rust, no Python.
 
 | Platform | File |
@@ -190,7 +236,7 @@ Get-FileHash .\Hush_0.1.0_x64_en-US.msi -Algorithm SHA256
 ### Rebuilding it yourself
 
 ```sh
-git clone https://github.com/OWNER/hush
+git clone https://github.com/justlinuxnoob/hush
 cd hush
 git checkout v0.1.0          # the tag you downloaded
 npm ci                       # exact versions from package-lock.json

@@ -26,8 +26,8 @@ export const markWelcomeSeen = () => invoke<void>("mark_welcome_seen");
 export const saveCredentials = (clientId: string, clientSecret: string) =>
   invoke<void>("save_credentials", { clientId, clientSecret });
 
-export const connect = (allowSend: boolean) =>
-  invoke<Status>("connect", { allowSend });
+export const connect = (allowSend: boolean, allowDelete: boolean) =>
+  invoke<Status>("connect", { allowSend, allowDelete });
 
 export const resumeSession = () => invoke<Status>("resume_session");
 
@@ -49,8 +49,8 @@ export const setNeverTouch = (address: string, never: boolean) =>
 export const planUnsubscribe = (addresses: string[]) =>
   invoke<PlannedAction[]>("plan_unsubscribe", { selection: { addresses } });
 
-export const runUnsubscribe = (addresses: string[]) =>
-  invoke<RunReport>("run_unsubscribe", { selection: { addresses } });
+export const runUnsubscribe = (addresses: string[], deleteBacklog: boolean) =>
+  invoke<RunReport>("run_unsubscribe", { selection: { addresses }, deleteBacklog });
 
 export const markManualDone = (address: string) =>
   invoke<void>("mark_manual_done", { address });

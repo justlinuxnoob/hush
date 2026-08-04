@@ -8,10 +8,10 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 126 passing (112 unit, 14 against a mocked Gmail API) |
+| Rust tests | 133 passing (119 unit, 14 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
-| App launches | **yes, on Linux** — built, launched, screens exercised |
+| App launches | **yes, on Linux** — built, launched, every screen exercised |
 | Real Gmail account | **no** — see below |
 | macOS / Windows | **never built or run** — see below |
 
@@ -111,6 +111,27 @@ trade-off is the user's to make rather than mine:
 - **Send via Gmail** — fully automatic, but requires `gmail.send`, which lets the
   app send mail as them. Off unless explicitly granted at the consent screen,
   and the app trusts what Google actually granted rather than what it asked for.
+
+### Clearing out the backlog moves mail to Trash, never deletes it
+
+Added after the first version, at the maintainer's request. Three decisions
+inside it that another pair of eyes should check:
+
+- **Only mail carrying an unsubscribe header is binned**
+  (`Store::bulk_message_ids`). This reuses the unsubscribe gate, so a shop's
+  order confirmations survive while its marketing goes. It is the reason the
+  feature is safe at all, and there are tests pinning it.
+- **`gmail.modify`, not `mail.google.com`.** The narrower scope permits
+  trashing but not permanent deletion, so the app is structurally incapable of
+  destroying anything even if the code were wrong.
+- **`messages.trash`, not `batchModify` with a `TRASH` label.** Batching would
+  be ~20x cheaper in quota (50 units per 1,000 vs 20 units each), but whether
+  the API accepts `TRASH` via `addLabelIds` is disputed between sources and I
+  could not settle it. A disputed reading is not something to lean on for a
+  destructive call. **Worth revisiting** if someone confirms it: binning a
+  600-message backlog currently takes a couple of minutes.
+
+None of this has run against a real account either — see the top of this file.
 
 ### Subjects are stored locally
 

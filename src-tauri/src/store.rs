@@ -192,6 +192,24 @@ impl Store {
         Ok(out)
     }
 
+    /// The ids of a sender's *bulk* messages — the ones that actually carried
+    /// an unsubscribe header.
+    ///
+    /// This is the whole safety story for the tidy-up feature. Plenty of shops
+    /// send marketing and receipts from one address; the marketing carries
+    /// `List-Unsubscribe` and the receipt does not. Selecting on that header
+    /// means an order confirmation from a sender you just unsubscribed from is
+    /// left exactly where it was.
+    pub fn bulk_message_ids(&self, account: &str, sender: &str) -> Result<Vec<String>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM messages
+             WHERE account = ?1 AND sender = ?2 AND lu IS NOT NULL AND lu != ''",
+        )?;
+        let rows = stmt.query_map(params![account, sender], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     // --- senders -----------------------------------------------------------
 
     /// Build the sender list the interface shows.
@@ -442,6 +460,8 @@ struct Group {
     address: String,
     name: String,
     count: u32,
+    /// Of those, how many carried an unsubscribe header.
+    bulk_count: u32,
     first_ms: i64,
     last_ms: i64,
     subjects: Vec<String>,
@@ -456,6 +476,7 @@ impl Group {
             address,
             name: String::new(),
             count: 0,
+            bulk_count: 0,
             first_ms: i64::MAX,
             last_ms: 0,
             subjects: Vec::new(),
@@ -477,6 +498,9 @@ impl Group {
             self.name = name;
         }
         self.count += 1;
+        if lu.as_deref().is_some_and(|v| !v.is_empty()) {
+            self.bulk_count += 1;
+        }
         self.first_ms = self.first_ms.min(date_ms);
         self.last_ms = self.last_ms.max(date_ms);
         if self.subjects.len() < SAMPLE_SUBJECTS && !subject.is_empty() {
@@ -522,6 +546,7 @@ impl Group {
             never_touch: never.contains(&self.address),
             outcome: outcomes.get(&self.address).cloned(),
             message_count: self.count,
+            bulk_count: self.bulk_count,
             first_seen_ms: if self.first_ms == i64::MAX {
                 0
             } else {
@@ -823,6 +848,95 @@ mod tests {
         let sender = &s.senders(ACC).unwrap()[0];
         assert_eq!(sender.sample_subjects.len(), SAMPLE_SUBJECTS);
         assert_eq!(sender.sample_subjects[0], "Subject 29");
+    }
+
+    #[test]
+    fn tidying_up_leaves_a_senders_receipts_alone() {
+        // The case this exists for: one shop, one address, two kinds of mail.
+        // The marketing carries an unsubscribe header; the order confirmation
+        // does not. Only the marketing may ever be binned.
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://shop.example/u>");
+        s.put_messages(
+            ACC,
+            &[
+                msg("promo1", "hi@shop.example", "50% off everything", 1, lu),
+                msg("promo2", "hi@shop.example", "New arrivals", 2, lu),
+                msg("receipt", "hi@shop.example", "Your order #1234", 3, None),
+                msg(
+                    "shipped",
+                    "hi@shop.example",
+                    "Your order has shipped",
+                    4,
+                    None,
+                ),
+            ],
+        )
+        .unwrap();
+
+        let mut ids = s.bulk_message_ids(ACC, "hi@shop.example").unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["promo1", "promo2"]);
+        assert!(!ids.contains(&"receipt".to_string()));
+        assert!(!ids.contains(&"shipped".to_string()));
+
+        // And the sender's counts tell the user the same story.
+        let sender = &s.senders(ACC).unwrap()[0];
+        assert_eq!(sender.message_count, 4);
+        assert_eq!(sender.bulk_count, 2, "only the bulk mail would be binned");
+    }
+
+    #[test]
+    fn tidying_up_never_reaches_another_sender_or_another_account() {
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://x.example/u>");
+        s.put_messages(
+            ACC,
+            &[
+                msg("mine", "a@x.example", "Hi", 1, lu),
+                msg("theirs", "b@x.example", "Hi", 1, lu),
+            ],
+        )
+        .unwrap();
+        s.put_messages(
+            "other@example.com",
+            &[msg("elsewhere", "a@x.example", "Hi", 1, lu)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            s.bulk_message_ids(ACC, "a@x.example").unwrap(),
+            vec!["mine"]
+        );
+        assert!(s
+            .bulk_message_ids(ACC, "nobody@x.example")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn an_empty_unsubscribe_header_does_not_count_as_bulk() {
+        // A header present but blank parses to nothing, so the sender is not
+        // offered — and their mail must not be binnable either.
+        let s = Store::open_in_memory().unwrap();
+        s.put_messages(
+            ACC,
+            &[
+                msg("blank", "a@x.example", "Hi", 1, Some("")),
+                msg(
+                    "real",
+                    "a@x.example",
+                    "Hi",
+                    2,
+                    Some("<https://x.example/u>"),
+                ),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            s.bulk_message_ids(ACC, "a@x.example").unwrap(),
+            vec!["real"]
+        );
     }
 
     #[test]

@@ -67,6 +67,16 @@ export default function Results({
 
         {problem && <Notice tone="problem">{problem}</Notice>}
 
+        {report.trash && report.trash.trashed > 0 && (
+          <Notice tone={report.trash.simulated ? "accent" : "calm"}>
+            {report.trash.simulated
+              ? `${plural(report.trash.trashed, "old email")} would move to your Gmail Trash.`
+              : `${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}
+            {report.trash.failed > 0 &&
+              ` ${report.trash.failed} couldn't be moved and were left alone.`}
+          </Notice>
+        )}
+
         {simulated.length > 0 && (
           <Section title={`${plural(simulated.length, "sender")} would be handled`}>
             {simulated.map((o) => (

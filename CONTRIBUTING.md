@@ -21,13 +21,19 @@ merged, however good the code is.
 3. **`List-Unsubscribe` is the gate.** A sender with no unsubscribe header is
    never shown and never actionable. If you find yourself adding a way around
    this, stop.
-4. **Never delete or modify mail.** Hush unsubscribes. That's the whole product.
-   Don't add archiving, labelling, filtering, or deleting.
-5. **No AI, no models, no inference.** Header parsing and grouping, nothing more.
+4. **Never permanently delete anything, and never touch mail the user didn't
+   ask about.** Hush unsubscribes; clearing out a sender's old newsletters is an
+   opt-in extra that moves them to Trash and nothing more. Don't add archiving,
+   labelling, filtering, or permanent deletion, and don't request a permission
+   that would allow them.
+5. **Only bin what carried an unsubscribe header.** The tidy-up reuses the same
+   gate as unsubscribing, via `Store::bulk_message_ids`. A shop's receipts have
+   no header and must survive. There are tests; keep them passing.
+6. **No AI, no models, no inference.** Header parsing and grouping, nothing more.
    This is a deterministic tool and its predictability is the point.
-6. **Bodies are never fetched.** `format=metadata` with a fixed header list.
+7. **Bodies are never fetched.** `format=metadata` with a fixed header list.
    There is a test that fails if someone changes this.
-7. **Nothing is pre-selected.** Every checkbox starts empty.
+8. **Nothing is pre-selected.** Every checkbox starts empty.
 
 ## Language in the interface
 
@@ -50,7 +56,8 @@ Anything touching these needs test coverage in the same change:
   a case it catches and a case it must *not* catch. False positives cost one
   click; false negatives cost someone a receipt.
 - `src-tauri/src/store.rs` — sender grouping, and the gate itself.
-- `src-tauri/src/unsub.rs` — anything that sends a request.
+- `src-tauri/src/unsub.rs` — anything that sends a request, and anything that
+  moves mail to Trash.
 
 ### Adding to the heuristics lists
 

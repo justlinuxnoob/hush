@@ -27,6 +27,8 @@ export interface Sender {
   address: string;
   display_name: string;
   message_count: number;
+  /** How many of those carried an unsubscribe header — the ones a tidy-up would bin. */
+  bulk_count: number;
   first_seen_ms: number;
   last_seen_ms: number;
   frequency: string;
@@ -46,6 +48,7 @@ export interface Status {
   email: string | null;
   has_credentials: boolean;
   can_send: boolean;
+  can_delete: boolean;
   dry_run: boolean;
   mailto_mode: MailtoMode;
   keychain_available: boolean;
@@ -74,9 +77,17 @@ export interface PlannedAction {
   detail: string;
 }
 
+export interface TrashReport {
+  trashed: number;
+  failed: number;
+  /** True when it was a rehearsal and nothing actually moved. */
+  simulated: boolean;
+}
+
 export interface RunReport {
   outcomes: Outcome[];
   handoffs: { address: string; mailto_url: string }[];
+  trash: TrashReport | null;
 }
 
 /** The shape every rejected command takes. */

@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Setting up Google credentials
-    url: https://github.com/OWNER/hush#getting-your-google-credentials
+    url: https://github.com/justlinuxnoob/hush#getting-your-google-credentials
     about: Stuck in the Google Cloud console? The README walks through every step.
   - name: Google keeps asking me to reconnect
-    url: https://github.com/OWNER/hush#why-testing-mode
+    url: https://github.com/justlinuxnoob/hush#why-testing-mode
     about: Expected. Projects in Testing mode expire the connection every seven days.

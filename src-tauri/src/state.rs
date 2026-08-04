@@ -25,6 +25,8 @@ pub struct Session {
     pub gmail: Arc<GmailClient>,
     pub storage: TokenStorage,
     pub can_send: bool,
+    /// Whether Google granted the permission needed to move mail to Trash.
+    pub can_delete: bool,
 }
 
 pub struct AppState {
