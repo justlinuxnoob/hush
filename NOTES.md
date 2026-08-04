@@ -12,8 +12,9 @@ second opinion.
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
+| Release workflow | **yes** — all four installers built in public CI, checksums verified |
 | Real Gmail account | **no** — see below |
-| macOS / Windows | **never built or run** — see below |
+| macOS / Windows | **built, never run** — see below |
 
 ### Not tested against a real inbox
 
@@ -31,12 +32,28 @@ Likewise, **no unsubscribe request has ever been sent to a real endpoint.** The
 one-click POST is built and unit-tested but has never met a live marketing
 platform.
 
-### Only built on Linux
+### Only *run* on Linux
 
-The bundle targets for macOS and Windows are configured but have never run. The
-`.deb` builds locally; the AppImage step fails in this sandbox because
-`linuxdeploy` needs FUSE, which should be fine on a normal CI runner but is
-unproven. **Treat the first CI run as the real test of the release workflow.**
+All four installers now build in CI — `.msi`, `.exe`, universal `.dmg`, `.deb`
+and `.AppImage` — and a downloaded `.deb` verifies against the published
+`SHA256SUMS`. But **the macOS and Windows binaries have never been launched by
+anybody.** Building is not running: a missing runtime dependency, a broken
+keychain call, or a window that opens blank would all sail through a green
+build. Someone should open them before the draft release goes public.
+
+The first release run also cost three attempts, which is worth recording since
+it says something about the workflow rather than the app:
+
+1. `macos-13` (Intel) runners never allocated — queued 20+ minutes while the
+   other three finished in 4–6. Replaced with a single universal build.
+2. The universal build compiled and then failed at the link with only one
+   architecture installed. `rust-toolchain.toml` pins the toolchain, so the
+   toolchain action's `targets:` input put them where the build could not see
+   them; an explicit `rustup target add` fixed it.
+3. Green.
+
+The AppImage step also fails on a sandboxed local machine because `linuxdeploy`
+needs FUSE. On a CI runner it is fine.
 
 ## Things I had to guess at
 
