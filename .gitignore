@@ -1,0 +1,16 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Generated at build time from icons/source.png by `npx tauri icon`.
+# The source and the sizes Tauri bundles are committed; the store/mobile
+# variants are not.
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

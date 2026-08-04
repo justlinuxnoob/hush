@@ -1,0 +1,47 @@
+name: A sender was classified wrongly
+description: Hush flagged something harmless, missed something important, or offered a sender it shouldn't have
+labels: ["heuristics"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports are the most useful kind. The lists of banks, airlines and
+        delivery services are incomplete by nature, and real examples are the
+        only way they improve.
+
+        **Please don't include anything private** - the sender's address and a
+        subject line or two is all that's needed, and only if you're comfortable
+        sharing them publicly.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong?
+      options:
+        - Hush offered a sender it should never have offered
+        - Hush warned about a sender that's just marketing
+        - Hush didn't warn about a sender that sends things I need
+        - A sender appeared several times instead of once
+    validations:
+      required: true
+
+  - type: input
+    id: sender
+    attributes:
+      label: The sender's address
+      description: Feel free to redact - "noreply@<mybank>.com" is still useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: subjects
+    attributes:
+      label: A few of their recent subject lines
+      description: Only if you're happy to share them.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened?
+    validations:
+      required: true

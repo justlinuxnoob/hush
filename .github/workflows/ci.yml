@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental artefacts vary between runs and buy nothing in CI.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      # The toolchain comes from rust-toolchain.toml, so nothing is pinned twice.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: Lints
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Types and build
+        run: npm run build
+
+      # The demo backend is a development convenience. If it ever reached a
+      # release, the app would show invented senders to real people.
+      - name: The demo backend stays out of a real build
+        run: |
+          if grep -rl "mock backend" dist/; then
+            echo "::error::devmock.ts was bundled into a production build."
+            exit 1
+          fi
+
+  # The safety rules from CONTRIBUTING.md, checked mechanically. A reviewer can
+  # miss one of these in a large diff; this cannot.
+  promises:
+    name: Promises
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Test fixtures and input placeholders legitimately look like credentials,
+      # so they carry a "not-a-real" marker and are skipped here. Anything else
+      # with the shape of a real one fails the build.
+      - name: No embedded Google credentials
+        run: |
+          # Matches the shape of a credential *value*, not a mention of the
+          # format — the validation code has to name both prefixes to explain
+          # them, and a plain substring search would flag itself.
+          hits=$(grep -rnE "[0-9]{6,}-[A-Za-z0-9_-]{20,}\.apps\.googleusercontent\.com|GOCSPX-[A-Za-z0-9_-]{20,}" \
+                   --include="*.rs" --include="*.ts" --include="*.tsx" \
+                   --include="*.json" src src-tauri/src src-tauri/*.json \
+                 | grep -v "not-a-real" || true)
+          if [ -n "$hits" ]; then
+            echo "::error::A Google credential looks embedded in the source."
+            echo "$hits"
+            exit 1
+          fi
+
+      - name: Message bodies are never requested
+        run: |
+          if grep -rn 'format.*\(full\|raw\)' src-tauri/src/gmail.rs \
+               | grep -v '^\s*//' | grep -v 'must only ever request'; then
+            echo "::error::gmail.rs may be asking for message bodies."
+            exit 1
+          fi
+
+      - name: The web layer makes no network requests of its own
+        run: |
+          if grep -rn "fetch(\|XMLHttpRequest\|WebSocket\|EventSource" src/; then
+            echo "::error::The interface must go through Rust, never the network directly."
+            exit 1
+          fi

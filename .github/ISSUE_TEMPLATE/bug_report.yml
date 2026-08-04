@@ -1,0 +1,68 @@
+name: Something went wrong
+description: Hush did something unexpected, or didn't work
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this.
+
+        **Please don't paste your Client ID, client secret, or any part of a
+        connection token.** They aren't needed to diagnose anything, and this
+        issue is public.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What were you doing?
+      placeholder: |
+        1. Opened Hush and connected my account
+        2. Scanned the last year
+        3. Selected 12 senders and pressed Review
+        4. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dry_run
+    attributes:
+      label: Was dry run switched on?
+      options:
+        - "Yes - dry run was on"
+        - "No - dry run was off"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Which system?
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Which version of Hush?
+      placeholder: "0.1.0 - it's in Settings"
+    validations:
+      required: true
+
+  - type: textarea
+    id: message
+    attributes:
+      label: What did the app say?
+      description: The exact wording of any message it showed you.

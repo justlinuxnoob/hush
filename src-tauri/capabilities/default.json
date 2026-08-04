@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The minimum the interface needs: talk to Hush's own commands and listen for scan progress. Notably absent — filesystem, shell, HTTP, and the opener plugin. Every network request and every link Hush opens is made from Rust, after the checks in `unsub` and `commands`, so the web layer cannot reach the network or the operating system on its own.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

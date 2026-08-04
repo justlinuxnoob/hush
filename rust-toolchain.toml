@@ -1,0 +1,6 @@
+# Pinned so CI, release builds and anyone rebuilding from source all use the
+# same compiler. Bumping this is a deliberate change, not a drift.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
