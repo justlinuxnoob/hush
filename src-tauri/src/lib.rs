@@ -18,6 +18,7 @@
 pub mod auth;
 pub mod commands;
 pub mod error;
+pub mod filters;
 pub mod gmail;
 pub mod heuristics;
 pub mod logging;
@@ -63,6 +64,9 @@ pub fn run() {
             commands::sender_messages,
             commands::plan_unsubscribe,
             commands::run_unsubscribe,
+            commands::list_blocks,
+            commands::preview_block_removal,
+            commands::remove_block,
             commands::outcomes,
             commands::open_link,
             commands::set_mailto_mode,

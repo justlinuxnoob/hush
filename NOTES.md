@@ -393,6 +393,93 @@ The general rule: whether a screen fits is a question about someone else's
 window size, font size and display scaling, none of which we get to know. So
 never answer it by looking at your own screen.
 
+## The gate had a door in it
+
+Binning a backlog is header-gated: only mail that carried `List-Unsubscribe`
+can be moved, which is the mechanism that keeps receipts out of it. The block
+filter was not gated at all. It matched on the address, so a shop that sends its
+newsletter and its order confirmations from one address would have had every
+future receipt trashed, thirty days from permanent deletion.
+
+The exact harm the app exists to prevent, walking in through the one door the
+gate did not guard — and it shipped in 0.5.0 as the *recommended* action.
+
+The fix is not a better heuristic. It is that blocking now archives by default:
+mail leaves the inbox and stays in the account, searchable, forever. Trashing is
+still there, behind an explicit second tick that names what could be lost, and
+it is visually de-emphasised when any selected sender looks transactional.
+
+Worth naming the general shape, because it will recur: **two features that are
+each safe can be unsafe as a pair.** The gate was real and the filter was real.
+Nobody wrote "and future receipts get deleted" — it fell out of combining them.
+Whenever a new capability lands next to an old protection, the question to ask
+is not "is this safe" but "does this reach around that".
+
+## Gmail is the database
+
+The Blocked senders screen reads filters live from the account instead of
+keeping a local list of what Hush blocked. That was the cheap option and it is
+also the right one: no second copy to drift, correct on a machine that has never
+seen the account, correct after a reinstall, free on a phone build if there ever
+is one, and nothing about what you blocked stored on your disk.
+
+The cost is that Hush has to recognise its own work rather than remember it. The
+marker is a Gmail label, `Hush`, applied by every filter it creates. Considered
+and rejected: a token in `negatedQuery` (invisible, and it quietly changes what
+the filter matches), and inferring from the filter's shape (a user's own
+`from:x → TRASH` rule is byte-identical to ours — shape is not evidence).
+
+The label won because it does a second job. It tags the *mail* as well as the
+filter, so unblocking can restore exactly what that block caught and leave alone
+what the user filed themselves. Matching on `from:` alone would have swept up
+mail they archived by hand months earlier.
+
+It can be defeated: delete the label and Hush stops recognising its filters. The
+failure mode is the safe one — everything becomes foreign, and foreign filters
+are read-only.
+
+## What Gmail will not tell you
+
+The filters API returns `id`, `criteria` and `action`. **No creation date.** The
+brief asked for "when it was created — where derivable", and the honest answer
+is that it is not derivable: the id is opaque, and there is no timestamp
+anywhere in the response. So the screen does not show one. Inventing a
+plausible-looking date would have been worse than the blank.
+
+## A live test, because mocks agree with you
+
+`tests/live_filters.rs` does a create-list-classify-delete round trip against a
+real account, ignored by default, cleaning up after itself.
+
+It exists because of the 411: a fully green suite while the trash endpoint
+rejected every real request, since wiremock accepted the bodyless POST that
+Google does not. "Does a user label survive being written into a filter action
+and read back" is exactly that shape of question, and no mock can answer it.
+
+Status as of writing: the label creation half has been run against a real
+account and works. The filter round trip has not — the connection on the
+development machine holds `gmail.modify` but not `gmail.settings.basic`, so
+Google refuses the create. The mocked round trip passes, which is worth
+precisely what the 411 taught us it is worth. This is written down rather than
+glossed because a comment claiming "verified against a real account" was in the
+source for about ten minutes before it was true, and that is how the last one
+happened.
+
+## The dry run that was asked for again
+
+The brief for this pair of features asked to "update the dry-run path to cover
+both". There is no dry-run path. It was removed in 0.4.0 after it shipped on by
+default and silently turned the whole app into a no-op for anyone who never
+found the toggle — the single worst bug in this project's history, and the user
+who hit it was the one who asked for the feature in the first place.
+
+Not rebuilt. Recorded here so the next person to ask knows it was considered.
+What replaced it: nothing is preselected, the confirm screen states exactly who
+and how many, the request itself is inspectable behind a disclosure, blocking
+archives by default, and every block is reversible from inside the app. That is
+a better answer to "let me check before I commit" than a mode that changes what
+the buttons do.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

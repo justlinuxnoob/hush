@@ -93,10 +93,11 @@ export default function Results({
 
         {report.blocked && report.blocked.blocked > 0 && (
           <Notice tone="accent">
-            {plural(report.blocked.blocked, "sender")} blocked — anything they
-            send from now on goes straight to Trash, whether or not they honour
-            the unsubscribe. You can see and undo these under Settings → Filters
-            in Gmail.
+            {plural(report.blocked.blocked, "sender")} blocked —{" "}
+            {report.blocked.action === "trash"
+              ? "anything they send from now on goes straight to Trash, whether or not they honour the unsubscribe. Gmail empties Trash after 30 days."
+              : "anything they send from now on skips your inbox, whether or not they honour the unsubscribe. It stays in your account and stays searchable; nothing is deleted."}{" "}
+            Undo any of them under Blocked senders.
             {report.blocked.confirmed !== null &&
               report.blocked.confirmed === report.blocked.blocked &&
               " Checked afterwards — the filters are there."}
@@ -110,6 +111,8 @@ export default function Results({
               ` ${report.blocked.failed} couldn't be blocked${
                 report.blocked.problem ? ` — ${report.blocked.problem}` : ""
               }.`}
+            {report.blocked.unmarked &&
+              " Hush couldn't add its own label to these, so it won't be able to list or undo them itself — you'd remove them under Settings → Filters in Gmail."}
           </Notice>
         )}
 
@@ -168,7 +171,11 @@ export default function Results({
             title={`${plural(couldNotAutomate.length, "sender")} couldn't be unsubscribed automatically`}
             note={
               blockedOk
-                ? "They only offer an unsubscribe you'd have to click through yourself, so Hush blocked them instead — their mail goes to Trash from now on and there's nothing for you to do."
+                ? `They only offer an unsubscribe you'd have to click through yourself, so Hush blocked them instead — their mail ${
+                    report.blocked?.action === "trash"
+                      ? "goes to Trash"
+                      : "skips your inbox"
+                  } from now on and there's nothing for you to do.`
                 : "They only offer an unsubscribe you'd have to click through yourself. Blocking would handle these without any work from you — it's the option on the previous screen."
             }
           >

@@ -23,7 +23,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::gmail::GmailClient;
+use crate::gmail::{BlockAction, GmailClient};
 use crate::model::{now_ms, Outcome, OutcomeStatus};
 use crate::parse::UnsubMethod;
 
@@ -95,15 +95,16 @@ pub struct UnsubRequest {
     pub methods: Vec<UnsubMethod>,
 }
 
-/// What the confirmation screen shows, and what a dry run reports.
+/// One line of what the confirmation screen is about to do.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlannedAction {
     pub address: String,
     pub display_name: String,
     /// Plain-language description, e.g. "Unsubscribed automatically".
     pub what: String,
-    /// The exact request, for the dry-run log. Technical on purpose: this pane
-    /// is the one place a curious user is allowed to see the machinery.
+    /// The exact request, shown behind a disclosure on the confirm screen.
+    /// Technical on purpose: this pane is the one place a curious user is
+    /// allowed to see the machinery.
     pub detail: String,
 }
 
@@ -150,27 +151,65 @@ pub struct BlockReport {
     /// How many of the filters Gmail confirms exist when asked afterwards.
     /// `None` when the check could not be run.
     pub confirmed: Option<u64>,
+    /// What the filters do. Reported back so the results screen states it
+    /// rather than assuming the user remembers what they picked.
+    pub action: BlockAction,
+    /// True when the filters went up without Hush's marker label, because the
+    /// label could not be created. They work; Hush just will not recognise
+    /// them later, and says so instead of quietly losing track.
+    pub unmarked: bool,
 }
 
-/// Create a Gmail filter per sender, sending their future mail to Trash.
+/// Create a Gmail filter per sender, keeping their future mail out of the
+/// inbox.
 ///
 /// The honest difference between this and unsubscribing: unsubscribing is a
 /// request to the sender, and depends on them honouring it, doing so promptly,
 /// and not having the user on four other lists. A filter is a rule in the
 /// user's own account. It does not ask anyone, and it works the same whether
 /// the sender is scrupulous, slow, or ignoring the request entirely.
+///
+/// It is also the one operation in the app that is *not* header-gated. Binning
+/// the backlog only ever touches mail that carried an unsubscribe header, which
+/// is what keeps receipts safe. A filter has no such protection: it catches
+/// every future message from that address, receipts included. That asymmetry is
+/// why `action` exists and why `Archive` is its default — archived mail is
+/// still in the account and still searchable, so a misjudged block costs the
+/// user an inconvenience rather than a receipt.
 pub async fn block_senders(
     gmail: &Arc<GmailClient>,
     senders: &[String],
+    action: BlockAction,
     cancel: &crate::gmail::Cancel,
 ) -> BlockReport {
-    let mut report = BlockReport::default();
+    let mut report = BlockReport {
+        action,
+        ..Default::default()
+    };
+
+    // Best effort. A missing marker makes the filter unmanageable from inside
+    // Hush later, which is worth reporting but is not worth refusing to protect
+    // someone's inbox over.
+    let marker = match crate::filters::ensure_label(gmail, cancel).await {
+        Ok(id) => Some(id),
+        Err(e) => {
+            log::warn!(
+                "couldn't create the {} label: {e}",
+                crate::filters::HUSH_LABEL
+            );
+            report.unmarked = true;
+            None
+        }
+    };
 
     for address in senders {
         if cancel.is_cancelled() {
             break;
         }
-        match gmail.block_sender(address, cancel).await {
+        match gmail
+            .block_sender(address, action, marker.as_deref(), cancel)
+            .await
+        {
             Ok(id) => {
                 log::info!("blocked future mail from {address} (filter {id})");
                 report.blocked += 1;
@@ -1439,17 +1478,44 @@ mod tests {
 
     // --- tidying up --------------------------------------------------------
 
-    #[tokio::test]
-    async fn blocking_creates_a_filter_that_trashes_future_mail() {
-        // The point of this feature: it does not ask the sender for anything.
+    /// A server that already has the `Hush` label, so blocking finds it rather
+    /// than creating one.
+    async fn server_with_label() -> wiremock::MockServer {
         let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/gmail/v1/users/me/labels"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(
+                r#"{"labels":[{"id":"INBOX","name":"INBOX"},{"id":"Label_7","name":"Hush"}]}"#,
+            ))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    fn client(server: &wiremock::MockServer) -> Arc<GmailClient> {
+        Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn archiving_keeps_mail_out_of_the_inbox_without_deleting_it() {
+        // The default, and the whole point of Feature 1: a filter is not
+        // header-gated, so it catches receipts too. Archiving means a
+        // misjudged block costs an inconvenience, not a receipt.
+        let server = server_with_label().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
             .and(wiremock::matchers::path(
                 "/gmail/v1/users/me/settings/filters",
             ))
             .and(wiremock::matchers::body_json(serde_json::json!({
                 "criteria": { "from": "news@acme.example" },
-                "action": { "addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX"] }
+                "action": { "addLabelIds": ["Label_7"], "removeLabelIds": ["INBOX"] }
             })))
             .respond_with(
                 wiremock::ResponseTemplate::new(200).set_body_string(r#"{"id":"filter-1"}"#),
@@ -1458,46 +1524,159 @@ mod tests {
             .mount(&server)
             .await;
 
-        let gmail = Arc::new(
-            GmailClient::with_base(
-                &server.uri(),
-                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
-                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
-            )
-            .unwrap(),
-        );
-
         let report = block_senders(
-            &gmail,
+            &client(&server),
             &["news@acme.example".to_string()],
+            BlockAction::Archive,
             &crate::gmail::Cancel::new(),
         )
         .await;
 
         assert_eq!(report.blocked, 1);
         assert_eq!(report.failed, 0);
+        assert_eq!(report.action, BlockAction::Archive);
+        assert!(!report.unmarked, "the label was there to be found");
+    }
+
+    #[tokio::test]
+    async fn trashing_is_available_but_only_when_asked_for_by_name() {
+        let server = server_with_label().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path(
+                "/gmail/v1/users/me/settings/filters",
+            ))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "criteria": { "from": "news@acme.example" },
+                "action": { "addLabelIds": ["TRASH", "Label_7"], "removeLabelIds": ["INBOX"] }
+            })))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_string(r#"{"id":"filter-1"}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let report = block_senders(
+            &client(&server),
+            &["news@acme.example".to_string()],
+            BlockAction::Trash,
+            &crate::gmail::Cancel::new(),
+        )
+        .await;
+
+        assert_eq!(report.blocked, 1);
+        assert_eq!(report.action, BlockAction::Trash);
+    }
+
+    #[tokio::test]
+    async fn the_default_action_is_the_one_that_deletes_nothing() {
+        // Belt and braces for the requirement that every path defaults to
+        // archiving. If this ever flips, someone's receipts are on a 30-day
+        // fuse because of a missing argument.
+        assert_eq!(BlockAction::default(), BlockAction::Archive);
+        assert_eq!(BlockAction::parse("trash"), BlockAction::Trash);
+        assert_eq!(BlockAction::parse("archive"), BlockAction::Archive);
+        assert_eq!(BlockAction::parse(""), BlockAction::Archive);
+        assert_eq!(BlockAction::parse("delete_forever"), BlockAction::Archive);
+        assert_eq!(BlockAction::parse("TRASH"), BlockAction::Archive);
+    }
+
+    #[tokio::test]
+    async fn the_label_is_created_when_the_account_has_never_had_one() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/gmail/v1/users/me/labels"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(r#"{"labels":[]}"#))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/gmail/v1/users/me/labels"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_string(r#"{"id":"Label_new","name":"Hush"}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path(
+                "/gmail/v1/users/me/settings/filters",
+            ))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "criteria": { "from": "a@b.example" },
+                "action": { "addLabelIds": ["Label_new"], "removeLabelIds": ["INBOX"] }
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(r#"{"id":"f1"}"#))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let report = block_senders(
+            &client(&server),
+            &["a@b.example".into()],
+            BlockAction::Archive,
+            &crate::gmail::Cancel::new(),
+        )
+        .await;
+        assert_eq!(report.blocked, 1);
+        assert!(!report.unmarked);
+    }
+
+    #[tokio::test]
+    async fn a_sender_is_still_blocked_when_the_label_cannot_be_made() {
+        // Creating a label needs the modify permission; filters need the
+        // settings one. Someone can hold the second without the first, and
+        // protecting their inbox matters more than Hush being able to tidy up
+        // after itself later. It has to say so, though.
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/gmail/v1/users/me/labels"))
+            .respond_with(wiremock::ResponseTemplate::new(403).set_body_string("no scope"))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path(
+                "/gmail/v1/users/me/settings/filters",
+            ))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "criteria": { "from": "a@b.example" },
+                "action": { "addLabelIds": [], "removeLabelIds": ["INBOX"] }
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(r#"{"id":"f1"}"#))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let report = block_senders(
+            &client(&server),
+            &["a@b.example".into()],
+            BlockAction::Archive,
+            &crate::gmail::Cancel::new(),
+        )
+        .await;
+
+        assert_eq!(report.blocked, 1, "the block still has to happen");
+        assert!(
+            report.unmarked,
+            "and the user has to be told it is unmanaged"
+        );
     }
 
     #[tokio::test]
     async fn a_refused_block_is_counted_and_explained() {
-        let server = wiremock::MockServer::start().await;
+        let server = server_with_label().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path(
+                "/gmail/v1/users/me/settings/filters",
+            ))
             .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("nope"))
             .mount(&server)
             .await;
 
-        let gmail = Arc::new(
-            GmailClient::with_base(
-                &server.uri(),
-                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
-                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
-            )
-            .unwrap(),
-        );
-
         let report = block_senders(
-            &gmail,
+            &client(&server),
             &["a@b.example".into()],
+            BlockAction::Archive,
             &crate::gmail::Cancel::new(),
         )
         .await;

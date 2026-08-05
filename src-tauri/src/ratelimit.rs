@@ -27,6 +27,10 @@ pub const COST_MESSAGES_TRASH: f64 = 20.0;
 pub const COST_PROFILE: f64 = 1.0;
 /// Settings changes are cheap and rare.
 pub const COST_FILTER_CREATE: f64 = 5.0;
+pub const COST_FILTER_DELETE: f64 = 5.0;
+pub const COST_LABELS_LIST: f64 = 1.0;
+pub const COST_LABELS_CREATE: f64 = 5.0;
+pub const COST_MESSAGES_MODIFY: f64 = 5.0;
 
 /// Start well under any documented ceiling and climb. A scan that begins
 /// politely and accelerates is better than one that trips a limit in its first

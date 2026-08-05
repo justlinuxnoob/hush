@@ -5,6 +5,7 @@ import { Meter, Notice, plural } from "../components/ui";
 import {
   errorCode,
   errorMessage,
+  type BlockAction,
   type PlannedAction,
   type RunProgress,
   type RunReport,
@@ -48,6 +49,11 @@ export default function Confirm({
   );
   const [binBacklog, setBinBacklog] = useState(false);
   const [asking, setAsking] = useState(false);
+  // What a block does. Archiving unless the user says otherwise, every time.
+  // The remembered preference only preselects — `acceptedTrash` below is the
+  // second, explicit interaction that trashing always requires.
+  const [blockAction, setBlockAction] = useState<BlockAction>(status.block_action);
+  const [acceptedTrash, setAcceptedTrash] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -89,7 +95,8 @@ export default function Confirm({
           addresses,
           future !== "block",
           binBacklog,
-          future !== "unsubscribe"
+          future !== "unsubscribe",
+          blockAction
         )
       );
     } catch (e) {
@@ -136,7 +143,18 @@ export default function Confirm({
     }
   }
 
-  const blocked = flagged.length > 0 && !acceptedFlagged;
+  const blocking = future !== "unsubscribe" && status.can_block;
+  // Choosing Trash is never enough on its own. The tick below it is the second
+  // interaction, and until it happens the run button stays put.
+  const needsTrashConsent = blocking && blockAction === "trash" && !acceptedTrash;
+  const blocked = (flagged.length > 0 && !acceptedFlagged) || needsTrashConsent;
+
+  // Moving back to Archive has to clear the consent, or a later switch to Trash
+  // would inherit a tick the user gave in a different context.
+  function chooseBlockAction(next: BlockAction) {
+    setBlockAction(next);
+    if (next === "archive") setAcceptedTrash(false);
+  }
 
   return (
     <div className="centre">
@@ -276,6 +294,99 @@ export default function Confirm({
               >
                 {asking ? "Waiting for your browser…" : "Allow Hush to block senders"}
               </button>
+            </div>
+          )}
+
+          {blocking && (
+            <div className="stack stack-3" style={{ borderTop: "1px solid var(--rule)", paddingTop: "calc(var(--step) * 4)" }}>
+              <div className="stack">
+                <h3 style={{ fontSize: "0.9375rem" }}>Where their blocked mail goes</h3>
+                <span className="muted small">
+                  A block catches everything from that address — including a
+                  receipt, if they send those from the same one.
+                </span>
+              </div>
+
+              <div className="choices">
+                <button
+                  className="choice"
+                  aria-pressed={blockAction === "archive"}
+                  disabled={busy}
+                  onClick={() => chooseBlockAction("archive")}
+                >
+                  <span>
+                    <strong>Out of the inbox — recommended</strong>
+                    <span className="why">
+                      Their mail skips the inbox and waits in your account.
+                      Searchable forever, nothing ever deleted. If they do send
+                      you a receipt, it's still there.
+                    </span>
+                  </span>
+                </button>
+                <button
+                  className="choice"
+                  aria-pressed={blockAction === "trash"}
+                  disabled={busy}
+                  onClick={() => chooseBlockAction("trash")}
+                  style={flagged.length > 0 ? { opacity: 0.62 } : undefined}
+                >
+                  <span>
+                    <strong>Straight to Trash</strong>
+                    <span className="why">
+                      Tidier, but Gmail empties Trash after 30 days.
+                      {flagged.length > 0 && (
+                        <>
+                          {" "}
+                          Not a good fit here — some of these look like they
+                          send receipts.
+                        </>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              </div>
+
+              {blockAction === "trash" && (
+                <Notice tone="caution">
+                  <div className="stack stack-2">
+                    <span>
+                      Anything Gmail moves to Trash is <strong>permanently
+                      deleted after 30 days</strong>, and Hush can't get it back
+                      after that. That includes any order confirmation, receipt
+                      or delivery note{" "}
+                      {chosen.length === 1
+                        ? "this sender sends"
+                        : "these senders send"}{" "}
+                      from the same address.
+                    </span>
+                    {flagged.length > 0 && (
+                      <span>
+                        {plural(flagged.length, "of the senders you picked looks", "of the senders you picked look")}{" "}
+                        like they send that sort of mail. Keeping this on
+                        "out of the inbox" would leave it recoverable.
+                      </span>
+                    )}
+                    <label
+                      className="row"
+                      style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={acceptedTrash}
+                        onChange={(e) => setAcceptedTrash(e.target.checked)}
+                        style={{ marginTop: "5px", accentColor: "var(--caution)" }}
+                      />
+                      <span style={{ fontWeight: 500 }}>
+                        I understand, send their mail to Trash
+                      </span>
+                    </label>
+                  </div>
+                </Notice>
+              )}
+
+              <span className="muted small">
+                You can undo any block later, under Blocked senders.
+              </span>
             </div>
           )}
         </div>

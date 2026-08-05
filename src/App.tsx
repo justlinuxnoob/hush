@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import * as api from "./api";
 import { Notice, Wordmark } from "./components/ui";
+import Blocks from "./screens/Blocks";
 import Confirm from "./screens/Confirm";
 import Connect from "./screens/Connect";
 import Results from "./screens/Results";
@@ -27,6 +28,7 @@ type Screen =
   | "list"
   | "confirm"
   | "results"
+  | "blocks"
   | "settings";
 
 export default function App() {
@@ -111,6 +113,11 @@ export default function App() {
           {!status.connected && screen !== "settings" && (
             <button className="btn-secondary btn-small" onClick={() => setScreen("connect")}>
               Reconnect
+            </button>
+          )}
+          {status.connected && screen !== "blocks" && (
+            <button className="btn-quiet btn-small" onClick={() => setScreen("blocks")}>
+              Blocked senders
             </button>
           )}
           <button
@@ -204,6 +211,14 @@ export default function App() {
             setReport(null);
             setScreen("list");
           }}
+        />
+      )}
+
+      {screen === "blocks" && (
+        <Blocks
+          status={status}
+          onStatusChange={setStatus}
+          onClose={() => setScreen("list")}
         />
       )}
 

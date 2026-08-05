@@ -40,6 +40,14 @@ export interface Sender {
 }
 
 export type MailtoMode = "hand_off" | "send_via_gmail";
+
+/**
+ * What blocking a sender does to their future mail.
+ *
+ * There is no third option and there will not be one. Deleting mail outright
+ * needs a Google permission Hush does not hold.
+ */
+export type BlockAction = "archive" | "trash";
 export type TokenStorage = "keychain" | "memory";
 export type ScanDepth = "six_months" | "one_year" | "two_years" | "everything";
 
@@ -59,6 +67,8 @@ export interface Status {
   message_count: number;
   sender_count: number;
   scanning: boolean;
+  /** How the user blocked last time. Preselects the choice; never replaces it. */
+  block_action: BlockAction;
 }
 
 export interface ScanProgress {
@@ -111,6 +121,35 @@ export interface BlockReport {
   problem: string | null;
   /** How many filters Gmail confirms exist. null = not checked. */
   confirmed: number | null;
+  action: BlockAction;
+  /** The filters went up without Hush's marker, so Hush can't manage them. */
+  unmarked: boolean;
+}
+
+/** One filter on the account, as read back from Gmail. */
+export interface ManagedFilter {
+  id: string;
+  address: string;
+  summary: string;
+  /** Only set for filters Hush created. */
+  action: BlockAction | null;
+  /** Whether Hush created it — and may therefore offer to remove it. */
+  mine: boolean;
+}
+
+export interface RemovalPreview {
+  address: string;
+  action: BlockAction | null;
+  in_trash: number;
+  archived: number;
+  approximate: boolean;
+}
+
+export interface RemovalReport {
+  filter_removed: boolean;
+  restored: number;
+  restore_failed: number;
+  problem: string | null;
 }
 
 export interface RunReport {

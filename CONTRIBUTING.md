@@ -100,9 +100,19 @@ fails if it ever turns up in `dist/`.
 
 ## Testing against a real inbox
 
-Set up your own Google project (the app walks you through it) and **leave dry
-run switched on**. Dry run reports exactly what would be sent without opening a
-socket, which is enough to check almost everything.
+Set up your own Google project — the app walks you through it — and use an
+account you do not mind changing. There is no practice mode, deliberately: one
+shipped, defaulted to on, and silently turned the entire app into a no-op for
+every user who never found the toggle. See NOTES.md.
+
+Two things make that safe enough to work with. Nothing is ever deleted
+permanently — Hush does not hold a permission that would allow it, so the worst
+case is mail in Trash for 30 days. And blocking defaults to archiving, which
+deletes nothing at all.
+
+`src-tauri/tests/live_filters.rs` runs a real create-list-delete round trip
+against your own account and cleans up after itself. Run it after touching
+anything in `filters.rs`, because a mock will agree with whatever you send it.
 
 ## Commit style
 

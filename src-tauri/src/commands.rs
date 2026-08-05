@@ -14,10 +14,13 @@ use crate::auth::{
     ClientCredentials, GoogleAuth, Keychain, TokenStorage, SCOPE_MODIFY, SCOPE_READONLY, SCOPE_SEND,
 };
 use crate::error::{Error, Result};
-use crate::gmail::{Cancel, GmailClient};
+use crate::filters::{ManagedFilter, RemovalPreview, RemovalReport};
+use crate::gmail::{BlockAction, Cancel, GmailClient};
 use crate::model::{Outcome, ScanDepth, ScanProgress, Sender};
 use crate::scan::Scanner;
-use crate::state::{AppState, Session, SETTING_ACCOUNT, SETTING_GRANTED, SETTING_SEEN_WELCOME};
+use crate::state::{
+    AppState, Session, SETTING_ACCOUNT, SETTING_BLOCK_ACTION, SETTING_GRANTED, SETTING_SEEN_WELCOME,
+};
 use crate::store::Store;
 use crate::unsub::{Executor, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest};
 
@@ -47,6 +50,9 @@ pub struct Status {
     pub message_count: u64,
     pub sender_count: u64,
     pub scanning: bool,
+    /// How the user blocked last time, so the choice can be preselected.
+    /// Defaults to archiving, which is also what an unreadable value means.
+    pub block_action: BlockAction,
 }
 
 #[tauri::command]
@@ -87,6 +93,12 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
         message_count,
         sender_count,
         scanning: state.scan_cancel.read().await.is_some(),
+        block_action: state
+            .store
+            .get_setting(SETTING_BLOCK_ACTION)?
+            .as_deref()
+            .map(BlockAction::parse)
+            .unwrap_or_default(),
     })
 }
 
@@ -450,6 +462,7 @@ pub async fn run_unsubscribe(
     unsubscribe: bool,
     delete_backlog: bool,
     block_future: bool,
+    block_action: Option<BlockAction>,
 ) -> Result<RunReport> {
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
@@ -489,12 +502,20 @@ pub async fn run_unsubscribe(
     }
 
     if block_future && !cancel.is_cancelled() {
+        // Absent means "the interface did not say", and the answer to that is
+        // always the safe one. A missing argument must never be the route by
+        // which someone's receipts end up on a 30-day fuse.
+        let action = block_action.unwrap_or_default();
+        state
+            .store
+            .set_setting(SETTING_BLOCK_ACTION, action.as_str())?;
+
         let session = state.session.read().await;
         let session = session.as_ref().ok_or(Error::Unauthorized)?;
         let addresses: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
 
         report.blocked = Some(if session.can_block {
-            crate::unsub::block_senders(&session.gmail, &addresses, &cancel).await
+            crate::unsub::block_senders(&session.gmail, &addresses, action, &cancel).await
         } else {
             // Reported as a failed block rather than raised as an error. The
             // unsubscribes have already gone out; failing the whole call would
@@ -511,6 +532,8 @@ pub async fn run_unsubscribe(
                     "Hush doesn't have Google's permission to create filters yet.".to_string(),
                 ),
                 confirmed: None,
+                action,
+                unmarked: false,
             }
         });
     }
@@ -522,6 +545,68 @@ pub async fn run_unsubscribe(
     }
 
     Ok(report)
+}
+
+/// Every filter on the account, read live from Gmail.
+///
+/// Hush keeps no record of what it has blocked. Gmail holds the filters, so
+/// Gmail is asked — which means this works on a machine that has never seen the
+/// account, survives reinstalling, and cannot fall out of step with the truth.
+#[tauri::command]
+pub async fn list_blocks(state: State<'_, AppState>) -> Result<Vec<ManagedFilter>> {
+    let session = state.session.read().await;
+    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    if !session.can_block {
+        return Err(Error::Setup(
+            "Hush needs Google's permission to read your filters before it can show them.".into(),
+        ));
+    }
+    crate::filters::list(&session.gmail, &Cancel::new()).await
+}
+
+/// What removing a block would put back, counted before anything happens.
+#[tauri::command]
+pub async fn preview_block_removal(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<RemovalPreview> {
+    let session = state.session.read().await;
+    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    crate::filters::preview_removal(&session.gmail, &id, &Cancel::new()).await
+}
+
+/// Remove one of Hush's filters, optionally restoring the mail it caught.
+///
+/// Restoring needs the modify permission, which is a separate grant from the
+/// one that manages filters. Asking for it and being refused should not cost
+/// the user the removal they actually came for, so the filter goes either way
+/// and the restore is skipped with an explanation.
+#[tauri::command]
+pub async fn remove_block(
+    state: State<'_, AppState>,
+    id: String,
+    restore: bool,
+) -> Result<RemovalReport> {
+    let session = state.session.read().await;
+    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    if !session.can_block {
+        return Err(Error::Setup(
+            "Hush needs Google's permission for filters before it can remove one.".into(),
+        ));
+    }
+
+    if restore && !session.can_delete {
+        let mut report = crate::filters::remove(&session.gmail, &id, false, &Cancel::new()).await?;
+        report.problem = Some(
+            "The filter is gone, so no new mail will be caught. Putting the old mail back \
+             needs the permission to manage your mail, which Hush doesn't have — you can \
+             grant it and remove the next one with restoring switched on."
+                .into(),
+        );
+        return Ok(report);
+    }
+
+    crate::filters::remove(&session.gmail, &id, restore, &Cancel::new()).await
 }
 
 /// Move the chosen senders' bulk mail to Trash.

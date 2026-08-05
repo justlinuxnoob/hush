@@ -10,9 +10,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import type {
+  BlockAction,
   MailtoMode,
+  ManagedFilter,
   Outcome,
   PlannedAction,
+  RemovalPreview,
+  RemovalReport,
   RunReport,
   ScanDepth,
   RunProgress,
@@ -65,14 +69,28 @@ export const runUnsubscribe = (
   addresses: string[],
   unsubscribe: boolean,
   deleteBacklog: boolean,
-  blockFuture: boolean
+  blockFuture: boolean,
+  blockAction: BlockAction
 ) =>
   invoke<RunReport>("run_unsubscribe", {
     selection: { addresses },
     unsubscribe,
     deleteBacklog,
     blockFuture,
+    blockAction,
   });
+
+/**
+ * The account's filters, read live from Gmail every time.
+ *
+ * Hush stores no list of what it blocked, so there is nothing here to go stale
+ * and nothing to migrate between machines.
+ */
+export const listBlocks = () => invoke<ManagedFilter[]>("list_blocks");
+export const previewBlockRemoval = (id: string) =>
+  invoke<RemovalPreview>("preview_block_removal", { id });
+export const removeBlock = (id: string, restore: boolean) =>
+  invoke<RemovalReport>("remove_block", { id, restore });
 
 export const outcomes = () => invoke<Outcome[]>("outcomes");
 export const openLink = (url: string) => invoke<void>("open_link", { url });

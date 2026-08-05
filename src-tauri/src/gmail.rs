@@ -66,7 +66,7 @@ impl Cancel {
     pub fn is_same(&self, other: &Cancel) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
-    fn check(&self) -> Result<()> {
+    pub fn check(&self) -> Result<()> {
         if self.is_cancelled() {
             Err(Error::Cancelled)
         } else {
@@ -105,6 +105,85 @@ pub struct HistoryPage {
     pub added_ids: Vec<String>,
     pub next_page_token: Option<String>,
     pub history_id: Option<String>,
+}
+
+/// What a block does to the sender's future mail.
+///
+/// There is deliberately no third option. Permanently deleting mail needs the
+/// `https://mail.google.com/` scope, which Hush does not ask for and will not,
+/// so "delete forever" is not a thing the app is able to do even by mistake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BlockAction {
+    /// Skip the inbox. The mail is still in the account, still searchable,
+    /// still there in a year. Nothing is ever deleted.
+    #[default]
+    Archive,
+    /// Move to Trash, which Gmail empties after 30 days.
+    Trash,
+}
+
+impl BlockAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Archive => "archive",
+            Self::Trash => "trash",
+        }
+    }
+
+    /// Parse a stored preference. Anything unrecognised — including a value
+    /// written by a future version — falls back to the safe one.
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "trash" => Self::Trash,
+            _ => Self::Archive,
+        }
+    }
+}
+
+/// A Gmail filter, as the settings API reports it.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Filter {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub criteria: FilterCriteria,
+    #[serde(default)]
+    pub action: FilterAction,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FilterCriteria {
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub to: String,
+    #[serde(default)]
+    pub subject: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(rename = "negatedQuery", default)]
+    pub negated_query: String,
+    #[serde(rename = "hasAttachment", default)]
+    pub has_attachment: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FilterAction {
+    #[serde(rename = "addLabelIds", default)]
+    pub add_label_ids: Vec<String>,
+    #[serde(rename = "removeLabelIds", default)]
+    pub remove_label_ids: Vec<String>,
+    #[serde(default)]
+    pub forward: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Label {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
 }
 
 impl GmailClient {
@@ -282,20 +361,45 @@ impl GmailClient {
         .map(|_| ())
     }
 
-    /// Create a Gmail filter sending this sender's future mail straight to Trash.
+    /// Create a Gmail filter that keeps this sender's future mail out of the
+    /// inbox.
     ///
     /// This is the difference between asking and deciding. An unsubscribe is a
     /// request to a sender who may ignore it, may take a fortnight, or may have
     /// you on four other lists. A filter is a rule in the user's own account
     /// that applies to every message from that address from now on.
     ///
-    /// Trash rather than permanent deletion, in keeping with the rest of the
-    /// app: mail sits there for 30 days and the user can look before it goes.
-    pub async fn block_sender(&self, address: &str, cancel: &Cancel) -> Result<String> {
+    /// Which is exactly why the action matters. A filter is not header-gated the
+    /// way binning the backlog is: it catches *everything* that address sends,
+    /// including the order confirmation from a shop that also sends newsletters.
+    /// `Archive` is therefore the honest default — the mail leaves the inbox and
+    /// stays searchable forever. `Trash` is available, and it is on a 30-day
+    /// fuse, so the user has to ask for it in as many words.
+    ///
+    /// `marker_label` is the label id that identifies this filter as Hush's
+    /// later on, and the mail it caught along with it. Passing `None` still
+    /// creates a working filter — it just becomes indistinguishable from one the
+    /// user wrote by hand, and Hush will refuse to touch it afterwards.
+    pub async fn block_sender(
+        &self,
+        address: &str,
+        action: BlockAction,
+        marker_label: Option<&str>,
+        cancel: &Cancel,
+    ) -> Result<String> {
         let url = format!("{}/gmail/v1/users/me/settings/filters", self.base);
+
+        let mut add: Vec<&str> = Vec::new();
+        if action == BlockAction::Trash {
+            add.push("TRASH");
+        }
+        if let Some(label) = marker_label {
+            add.push(label);
+        }
+
         let payload = serde_json::json!({
             "criteria": { "from": address },
-            "action": { "addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX"] }
+            "action": { "addLabelIds": add, "removeLabelIds": ["INBOX"] }
         });
 
         let body = self
@@ -314,11 +418,13 @@ impl GmailClient {
             .unwrap_or_default())
     }
 
-    /// The `from` address of every filter currently on the account.
+    /// Every filter currently on the account, as Gmail reports it.
     ///
-    /// Used to confirm a block landed. Gmail is the authority on what filters
-    /// exist; our own 200 only says a request was accepted.
-    pub async fn list_filter_senders(&self, cancel: &Cancel) -> Result<Vec<String>> {
+    /// Gmail is the authority on what filters exist; our own 200 only says a
+    /// request was accepted. It is also the only place they are stored — Hush
+    /// keeps no list of what it blocked, so this is read back fresh each time
+    /// and works the same on a machine that has never seen the account before.
+    pub async fn list_filters(&self, cancel: &Cancel) -> Result<Vec<Filter>> {
         let url = format!("{}/gmail/v1/users/me/settings/filters", self.base);
         let body = self
             .get(&url, &[], crate::ratelimit::COST_PROFILE, cancel)
@@ -327,26 +433,98 @@ impl GmailClient {
         #[derive(Deserialize)]
         struct Resp {
             #[serde(default)]
-            filter: Vec<FilterItem>,
+            filter: Vec<Filter>,
         }
-        #[derive(Deserialize)]
-        struct FilterItem {
-            #[serde(default)]
-            criteria: Criteria,
-        }
-        #[derive(Default, Deserialize)]
-        struct Criteria {
-            #[serde(default)]
-            from: String,
-        }
+        Ok(serde_json::from_str::<Resp>(&body)?.filter)
+    }
 
-        let resp: Resp = serde_json::from_str(&body)?;
-        Ok(resp
-            .filter
+    /// The `from` address of every filter on the account. Used to confirm a
+    /// block landed.
+    pub async fn list_filter_senders(&self, cancel: &Cancel) -> Result<Vec<String>> {
+        Ok(self
+            .list_filters(cancel)
+            .await?
             .into_iter()
             .map(|f| f.criteria.from)
             .filter(|f| !f.is_empty())
             .collect())
+    }
+
+    /// Delete one filter. The caller is responsible for having established that
+    /// it is one of ours; this function will delete whatever it is given.
+    pub async fn delete_filter(&self, id: &str, cancel: &Cancel) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/settings/filters/{}", self.base, id);
+        self.request(crate::ratelimit::COST_FILTER_DELETE, cancel, |token| {
+            self.http.delete(&url).bearer_auth(token)
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Every label on the account, id and name.
+    pub async fn list_labels(&self, cancel: &Cancel) -> Result<Vec<Label>> {
+        let url = format!("{}/gmail/v1/users/me/labels", self.base);
+        let body = self
+            .get(&url, &[], crate::ratelimit::COST_LABELS_LIST, cancel)
+            .await?;
+
+        #[derive(Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            labels: Vec<Label>,
+        }
+        Ok(serde_json::from_str::<Resp>(&body)?.labels)
+    }
+
+    /// Create a label, returning its id.
+    pub async fn create_label(&self, name: &str, cancel: &Cancel) -> Result<String> {
+        let url = format!("{}/gmail/v1/users/me/labels", self.base);
+        let payload = serde_json::json!({
+            "name": name,
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show",
+        });
+
+        let body = self
+            .request(crate::ratelimit::COST_LABELS_CREATE, cancel, |token| {
+                self.http.post(&url).bearer_auth(token).json(&payload)
+            })
+            .await?;
+        Ok(serde_json::from_str::<Label>(&body)?.id)
+    }
+
+    /// Take one message back out of Trash.
+    pub async fn untrash_message(&self, id: &str, cancel: &Cancel) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/untrash", self.base, id);
+        self.request(crate::ratelimit::COST_MESSAGES_TRASH, cancel, |token| {
+            // Same empty body as `trash_message`, for the same reason: without
+            // an explicit `Content-Length: 0` Google answers 411.
+            self.http
+                .post(&url)
+                .bearer_auth(token)
+                .header(reqwest::header::CONTENT_LENGTH, "0")
+                .body("")
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Add and remove labels on one message. Used to put mail back in the inbox
+    /// and to take Hush's marker off it again.
+    pub async fn modify_message(
+        &self,
+        id: &str,
+        add: &[&str],
+        remove: &[&str],
+        cancel: &Cancel,
+    ) -> Result<()> {
+        let url = format!("{}/gmail/v1/users/me/messages/{}/modify", self.base, id);
+        let payload = serde_json::json!({ "addLabelIds": add, "removeLabelIds": remove });
+        self.request(crate::ratelimit::COST_MESSAGES_MODIFY, cancel, |token| {
+            self.http.post(&url).bearer_auth(token).json(&payload)
+        })
+        .await
+        .map(|_| ())
     }
 
     /// Send a raw RFC 5322 message. Only used for `mailto:` unsubscribes, and

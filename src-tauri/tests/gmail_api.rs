@@ -716,3 +716,245 @@ async fn one_unreadable_message_does_not_sink_the_scan() {
     assert_eq!(progress.scanned, 2, "the readable ones still landed");
     assert_eq!(store.message_count(ACCOUNT).unwrap(), 2);
 }
+
+// --- managing the filters that blocking creates ------------------------------
+//
+// The rule these protect is the one with teeth: Hush removes filters it made
+// and refuses to touch anything else. Getting that wrong deletes a rule
+// somebody wrote by hand and relies on.
+
+/// Serve a label list and a filter list, the two reads every filter operation
+/// starts from.
+async fn account_with(server: &MockServer, labels: serde_json::Value, filters: serde_json::Value) {
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/labels"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "labels": labels })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/settings/filters"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "filter": filters })))
+        .mount(server)
+        .await;
+}
+
+fn hush_label() -> serde_json::Value {
+    json!([{"id": "Label_7", "name": "Hush"}])
+}
+
+#[tokio::test]
+async fn a_filter_hush_created_round_trips_and_is_recognised_as_ours() {
+    // The marker has to survive being written to Gmail and read back. This is
+    // the mocked half of that check; the real half was run against a live
+    // account, because a mock will agree with whatever we send it.
+    let server = MockServer::start().await;
+    account_with(
+        &server,
+        hush_label(),
+        json!([{
+            "id": "f-mine",
+            "criteria": {"from": "news@shop.example"},
+            "action": {"addLabelIds": ["Label_7"], "removeLabelIds": ["INBOX"]}
+        }]),
+    )
+    .await;
+
+    let gmail = client(&server, FakeTokens::new(false));
+    let listed = hush_lib::filters::list(&gmail, &Cancel::new())
+        .await
+        .unwrap();
+
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].mine);
+    assert_eq!(listed[0].address, "news@shop.example");
+    assert!(listed[0].summary.contains("Nothing is deleted"));
+}
+
+#[tokio::test]
+async fn a_filter_the_user_wrote_by_hand_is_listed_but_never_removed() {
+    let server = MockServer::start().await;
+    account_with(
+        &server,
+        hush_label(),
+        json!([{
+            "id": "f-theirs",
+            "criteria": {"from": "boss@work.example"},
+            // Identical in effect to one of ours, minus the marker.
+            "action": {"addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX"]}
+        }]),
+    )
+    .await;
+    // Deliberately unmounted: any DELETE at all fails the test, because
+    // wiremock answers an unmatched request with a 404 and the removal would
+    // report a failure rather than silently succeeding.
+    let gmail = client(&server, FakeTokens::new(false));
+
+    let listed = hush_lib::filters::list(&gmail, &Cancel::new())
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(!listed[0].mine, "no marker, not ours");
+
+    let refused = hush_lib::filters::remove(&gmail, "f-theirs", false, &Cancel::new()).await;
+    assert!(refused.is_err(), "a foreign filter must not be deleted");
+    assert!(
+        refused
+            .unwrap_err()
+            .to_string()
+            .contains("wasn't created by Hush"),
+        "and the refusal has to say why"
+    );
+
+    assert!(
+        !server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.method == wiremock::http::Method::DELETE),
+        "not one delete may reach Google"
+    );
+}
+
+#[tokio::test]
+async fn removing_a_block_puts_back_the_mail_it_caught() {
+    let server = MockServer::start().await;
+    account_with(
+        &server,
+        hush_label(),
+        json!([{
+            "id": "f-mine",
+            "criteria": {"from": "news@shop.example"},
+            "action": {"addLabelIds": ["TRASH", "Label_7"], "removeLabelIds": ["INBOX"]}
+        }]),
+    )
+    .await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/gmail/v1/users/me/settings/filters/f-mine"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // One message in Trash, one merely archived.
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param(
+            "q",
+            "in:trash label:Hush from:\"news@shop.example\"",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"messages": [{"id": "t1"}]})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param(
+            "q",
+            "-in:trash -in:inbox label:Hush from:\"news@shop.example\"",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"messages": [{"id": "a1"}]})))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/t1/untrash"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "t1"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    for id in ["t1", "a1"] {
+        Mock::given(method("POST"))
+            .and(path(format!("/gmail/v1/users/me/messages/{id}/modify")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": id})))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let gmail = client(&server, FakeTokens::new(false));
+    let report = hush_lib::filters::remove(&gmail, "f-mine", true, &Cancel::new())
+        .await
+        .unwrap();
+
+    assert!(report.filter_removed);
+    assert_eq!(report.restored, 2, "both the trashed and the archived one");
+    assert_eq!(report.restore_failed, 0);
+}
+
+#[tokio::test]
+async fn the_filter_goes_even_if_putting_the_mail_back_fails() {
+    // Half-done is the likely real-world shape of this — a quota limit part way
+    // through. The filter must still be gone, because that is the thing the
+    // user asked for, and the shortfall must be reported rather than rounded up.
+    let server = MockServer::start().await;
+    account_with(
+        &server,
+        hush_label(),
+        json!([{
+            "id": "f-mine",
+            "criteria": {"from": "news@shop.example"},
+            "action": {"addLabelIds": ["Label_7"], "removeLabelIds": ["INBOX"]}
+        }]),
+    )
+    .await;
+    Mock::given(method("DELETE"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"messages": [{"id": "a1"}]})))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/a1/untrash"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"id": "a1"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/gmail/v1/users/me/messages/a1/modify"))
+        .respond_with(ResponseTemplate::new(403).set_body_string("no"))
+        .mount(&server)
+        .await;
+
+    let gmail = client(&server, FakeTokens::new(false));
+    let report = hush_lib::filters::remove(&gmail, "f-mine", true, &Cancel::new())
+        .await
+        .unwrap();
+
+    assert!(report.filter_removed, "the block is lifted regardless");
+    assert_eq!(report.restored, 0);
+    assert!(report.restore_failed > 0);
+    assert!(report.problem.is_some());
+}
+
+#[tokio::test]
+async fn nothing_is_ours_once_the_label_is_gone() {
+    // Someone deletes the Hush label in Gmail. Every filter becomes foreign,
+    // which is the safe direction to fail in: read-only, not delete-happy.
+    let server = MockServer::start().await;
+    account_with(
+        &server,
+        json!([]),
+        json!([{
+            "id": "f-mine",
+            "criteria": {"from": "news@shop.example"},
+            "action": {"addLabelIds": ["Label_7"], "removeLabelIds": ["INBOX"]}
+        }]),
+    )
+    .await;
+
+    let gmail = client(&server, FakeTokens::new(false));
+    assert!(
+        !hush_lib::filters::list(&gmail, &Cancel::new())
+            .await
+            .unwrap()[0]
+            .mine
+    );
+    assert!(
+        hush_lib::filters::remove(&gmail, "f-mine", false, &Cancel::new())
+            .await
+            .is_err()
+    );
+}

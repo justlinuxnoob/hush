@@ -23,6 +23,15 @@ pub const SETTING_SEEN_WELCOME: &str = "seen_welcome";
 /// consent page to re-grant something they had already granted.
 pub const SETTING_GRANTED: &str = "granted_scopes";
 
+/// What the last block the user set up actually did — `archive` or `trash`.
+///
+/// Remembered so someone who has decided how they like their blocking is not
+/// asked the same question every run. It is a *preselection*, never an
+/// instruction: the choice is still on screen, the 30-day warning still shows,
+/// and anything unrecognised in this field reads back as `archive`. Nothing in
+/// the app upgrades a user from archiving to trashing on their behalf.
+pub const SETTING_BLOCK_ACTION: &str = "block_action";
+
 /// Everything about the currently connected account.
 pub struct Session {
     pub email: String,

@@ -12,6 +12,8 @@
  */
 
 import type {
+  BlockAction,
+  ManagedFilter,
   Outcome,
   PlannedAction,
   RunReport,
@@ -27,6 +29,7 @@ let status: Status = {
   connected: true,
   email: "you@example.com",
   has_credentials: true,
+  block_action: "archive",
   can_send: false,
   can_delete: false,
   can_block: false,
@@ -146,7 +149,8 @@ function run(
   addresses: string[],
   unsubscribe: boolean,
   deleteBacklog: boolean,
-  blockFuture: boolean
+  blockFuture: boolean,
+  blockAction: BlockAction
 ): RunReport {
   const outcomes: Outcome[] = (unsubscribe ? selectable(addresses) : [])
     .map((s) => ({
@@ -193,6 +197,8 @@ function run(
           failed: 0,
           problem: null,
           confirmed: selectable(addresses).length,
+          action: blockAction,
+          unmarked: false,
         }
       : null,
     trash: deleteBacklog
@@ -205,6 +211,30 @@ function run(
       : null,
   };
 }
+
+let demoFilters: ManagedFilter[] = [
+  {
+    id: "f1",
+    address: "news@dailydeals.example",
+    summary: "Keeps their mail out of the inbox. Nothing is deleted",
+    action: "archive",
+    mine: true,
+  },
+  {
+    id: "f2",
+    address: "offers@megastore.example",
+    summary: "Moves their mail to Trash, where Gmail deletes it after 30 days",
+    action: "trash",
+    mine: true,
+  },
+  {
+    id: "f3",
+    address: "boss@work.example",
+    summary: "One of your own filters — it adds a label",
+    action: null,
+    mine: false,
+  },
+];
 
 type Args = Record<string, unknown>;
 
@@ -261,8 +291,31 @@ const handlers: Record<string, (a: Args) => unknown> = {
       (a.selection as { addresses: string[] }).addresses,
       a.unsubscribe !== false,
       Boolean(a.deleteBacklog),
-      Boolean(a.blockFuture)
+      Boolean(a.blockFuture),
+      (a.blockAction as BlockAction) ?? "archive"
     ),
+  list_blocks: () => demoFilters,
+  preview_block_removal: (a) => {
+    const f = demoFilters.find((x) => x.id === a.id);
+    return {
+      address: f?.address ?? "",
+      action: f?.action ?? null,
+      in_trash: f?.action === "trash" ? 34 : 0,
+      archived: f?.action === "archive" ? 61 : 0,
+      approximate: false,
+    };
+  },
+  remove_block: (a) => {
+    const f = demoFilters.find((x) => x.id === a.id);
+    if (!f?.mine) throw new Error("That filter wasn't created by Hush");
+    demoFilters = demoFilters.filter((x) => x.id !== a.id);
+    return {
+      filter_removed: true,
+      restored: a.restore ? (f.action === "trash" ? 34 : 61) : 0,
+      restore_failed: 0,
+      problem: null,
+    };
+  },
   start_scan: () => {
     // Both passes, so the progress screen can be looked at as it really behaves.
     const total = 18_442;

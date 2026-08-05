@@ -4,12 +4,19 @@
 
 **Quietly unsubscribe from bulk email.**
 
-A desktop app that finds everyone who mails you in bulk and unsubscribes from
-the ones you pick — without ever risking your receipts, order confirmations, or
-password resets.
+A free, open-source Gmail unsubscribe app for **Windows, macOS and Linux**. It
+finds every sender mailing you in bulk, unsubscribes from the ones you pick, and
+blocks the ones that ignore you — without ever risking your receipts, order
+confirmations or password resets.
 
-No server. No telemetry. Your own Google credentials. Nothing is ever
-permanently deleted.
+No server. No account. No telemetry. Your own Google credentials, so your email
+never passes through anybody else's computer. Nothing is ever permanently
+deleted.
+
+[**Download**](https://github.com/justlinuxnoob/hush/releases/latest) ·
+[How it works](#how-unsubscribing-actually-works) ·
+[Why not a website?](#why-a-desktop-app-and-not-a-website) ·
+[FAQ](#questions-people-actually-ask)
 
 </div>
 
@@ -26,7 +33,7 @@ permanently deleted.
 | | What it does | Guaranteed? |
 |---|---|---|
 | **Unsubscribe** | Sends the sender's own one-click unsubscribe — the identical request Gmail's button makes | No. It's a *request*; they might ignore it or take a fortnight |
-| **Block** | Creates a Gmail filter sending their future mail straight to Trash | **Yes.** It's a rule in your account and doesn't ask anyone |
+| **Block** | Creates a Gmail filter that keeps their future mail out of your inbox | **Yes.** It's a rule in your account and doesn't ask anyone |
 | **Bin the backlog** | Moves their old newsletters to Trash | Yes, for everything Hush has scanned |
 
 The recommended default is **unsubscribe and block**: the first takes you off
@@ -87,8 +94,10 @@ On top of that:
   selection helpers deliberately skip flagged senders.
 - **A confirmation screen** that says exactly who, how many, and what will be
   sent — with a panel showing the literal request.
-- **Dry run, on by default.** The first launch sends nothing at all until you
-  turn it off.
+- **Blocking archives by default.** A filter is the one thing here that is not
+  header-gated — it catches everything from that address, receipts included — so
+  the default keeps mail in your account rather than deleting it.
+- **Every block is reversible from inside the app.** See *Managing your blocks*.
 
 ## How unsubscribing actually works
 
@@ -151,11 +160,57 @@ exactly why it's the one used.
 If you skip the permission, everything else works exactly the same. The tick-box
 is simply absent.
 
+## Archive or Trash: what blocking does to their mail
+
+Binning a backlog is *header-gated* — Hush only ever moves mail that carried an
+unsubscribe header, which is what keeps your receipts out of it.
+
+**A filter has no such protection.** It matches on the address, so it catches
+everything that address sends from then on. A shop that mails you its newsletter
+and your order confirmations from the same address will have both caught.
+
+So blocking asks you which you want:
+
+| | What happens | Recoverable? |
+|---|---|---|
+| **Out of the inbox** (default) | Their mail skips the inbox and waits in your account, tagged with a `Hush` label | Always. Nothing is deleted, ever |
+| **Straight to Trash** | Their mail goes to Trash | For 30 days, then Gmail deletes it permanently |
+
+Archiving is preselected in every path. Choosing Trash takes a second, explicit
+tick, and the warning names what you might lose. If any sender you picked looks
+like it sends receipts, the Trash option is de-emphasised and says so.
+
+**There is no delete-forever option and there will not be one.** That needs the
+`https://mail.google.com/` scope. Hush does not request it, so the app is not
+capable of permanently deleting your mail even by mistake.
+
+## Managing your blocks
+
+Blocks live in your Gmail settings, not in Hush. The **Blocked senders** screen
+reads them back from Google every time you open it, so:
+
+- Your blocks are already there on a second computer, or after a reinstall.
+- There is no local list to fall out of step with reality.
+- Nothing about what you blocked is stored on your machine.
+
+Every filter Hush creates applies a Gmail label called `Hush`. That is how the
+app recognises its own work — and it labels the caught mail too, so unblocking
+can put back exactly what that block caught and nothing else.
+
+**Filters you wrote yourself are shown read-only.** Hush will not modify or
+delete a rule it did not create; the label is the only thing it goes on, and no
+filter without it is ever touched. Delete the label in Gmail and Hush simply
+stops recognising its own filters — which fails in the safe direction.
+
+Unblocking deletes the filter and offers to put back the mail it caught.
+Anything Gmail has already purged from Trash is gone, and the app says so rather
+than implying otherwise.
+
 ## What touches what
 
 **Leaves your computer:** requests to `googleapis.com` and `accounts.google.com`,
-and — only for senders you tick, only when dry run is off — one request to that
-sender's own unsubscribe endpoint.
+and — only for senders you tick — one request to that sender's own unsubscribe
+endpoint.
 
 **Never leaves your computer:** everything else. There is no Hush server. There
 is no analytics, no crash reporting, no update ping, no usage counter. You can
@@ -187,12 +242,17 @@ what's on this computer.
 | Permission | When | What it allows |
 |---|---|---|
 | `gmail.readonly` | Always | Reading message metadata. Cannot change anything. |
-| `gmail.modify` | Only if you tick "bin the old emails" | Moving mail to Trash. **Not** permanent deletion. |
+| `gmail.modify` | For binning old mail, and for putting mail back when you unblock | Moving mail to and from Trash, and adding the `Hush` label. **Not** permanent deletion — that is a different scope, and Hush never asks for it. |
+| `gmail.settings.basic` | For blocking, and for the Blocked senders screen | Creating, reading and deleting Gmail filters. Reading them back needs no wider permission than making them, so managing your blocks costs you nothing extra. |
 | `gmail.send` | Only if you tick "send mail as me" | Sending the handful of unsubscribes that only work by email. |
 
-Hush trusts what Google actually granted rather than what it asked for, so
-declining an extra on the consent screen leaves that feature switched off rather
-than failing later.
+Google presents these as separate tick-boxes on its own consent page, so you can
+decline any of them there. Hush trusts what Google actually granted rather than
+what it asked for, so declining leaves that feature switched off rather than
+failing later.
+
+Notably absent: `https://mail.google.com/`, the scope that permits permanent
+deletion. Hush never requests it.
 
 ## Getting your Google credentials
 
@@ -338,6 +398,63 @@ uses. Retries use exponential backoff with jitter and honour `Retry-After`.
 
 Scans are cached in SQLite, resumable, cancellable at any point, and a second
 scan asks Gmail only what changed since the last one using its history marker.
+
+## Why a desktop app, and not a website?
+
+Every web-based unsubscribe service works the same way: you grant it access to
+your mailbox, and its servers read your mail. That is not a criticism of any
+particular one — it is the only way a website *can* work. Your mail has to reach
+their computer for their code to run on it.
+
+The best-known example of where that leads: Unroll.me told users "we won't touch
+your personal stuff" while sharing their e-receipts with its parent company,
+which sold the anonymised purchase data as market research. The FTC settled with
+them in 2019 over it
+([FTC press release](https://www.ftc.gov/news-events/news/press-releases/2019/12/ftc-finalizes-settlement-company-misled-consumers-about-how-it-accesses-uses-their-email)).
+
+Hush runs on your computer and talks to Google directly. There is no Hush
+server to send anything to, no account to create, and no terms of service that
+can change next year. The trade-off is real and stated up front: you spend about
+five minutes making your own Google credentials, once. That five minutes is what
+buys the guarantee.
+
+## Questions people actually ask
+
+**Does clicking unsubscribe confirm my address is real?**
+For legitimate bulk senders, no — the `List-Unsubscribe` header is the mechanism
+Gmail's own unsubscribe button uses, and Google requires large senders to honour
+it. For actual spam, yes, it can. Hush only ever offers senders whose mail
+carries that header, which is a decent proxy for "runs a real mailing list", but
+it is a proxy and not a promise. If something looks like spam, block it instead.
+
+**Will this delete my receipts or order confirmations?**
+Binning a backlog only touches mail that carried an unsubscribe header, so
+transactional mail is skipped by construction. Blocking is the one thing that
+catches everything from an address, which is why it defaults to archiving
+instead of deleting. See [Archive or Trash](#archive-or-trash-what-blocking-does-to-their-mail).
+
+**Can it permanently delete my email?**
+No. That requires the `https://mail.google.com/` scope. Hush does not request
+it, so it is not capable of it.
+
+**How do I unsubscribe from all my emails at once?**
+Hush shows every bulk sender with a count of how much each one sends, and there
+are bulk-selection helpers — but nothing is preselected and flagged senders are
+skipped by them. Deliberately: "unsubscribe from everything" is how people lose
+mail they wanted.
+
+**Does it work with Outlook, Yahoo, or Proton?**
+Not today. It is Gmail-only, because the safety mechanism leans on Gmail's API
+for metadata-only reads and on Gmail filters for blocking.
+
+**Do I have to keep it running?**
+No. It is a one-shot tool. Run it, deal with your senders, quit. The
+unsubscribes, filters and deletions all stay done.
+
+**Is my data sent anywhere?**
+No. See [What touches what](#what-touches-what) — the web layer runs under a
+Content Security Policy that forbids network requests outright, so it is
+verifiable rather than a promise.
 
 ## Contributing
 
