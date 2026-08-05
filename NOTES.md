@@ -13,13 +13,37 @@ second opinion.
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
 | Release workflow | **yes** — all four installers built in public CI, checksums verified |
-| Real Gmail account | **no** — see below |
+| Against a real Gmail account | deletion and blocking **both confirmed**; see below |
 | macOS / Windows | **built, never run** — see below |
 
-### Not tested against a real inbox
+### What has and has not met the real Gmail
 
-There were no Google credentials available, so **no code path that talks to
-Google has run against Google.** The Gmail client, the OAuth flow and the
+Confirmed against a live account:
+
+- **Deleting** — `POST .../trash` returning `200` with `"labelIds": ["TRASH"]`,
+  after the `411` fix.
+- **Blocking** — the filter appears under Gmail → Settings → Filters and
+  Blocked Addresses. `addLabelIds: ["TRASH"]` with `removeLabelIds: ["INBOX"]`
+  is accepted, despite Google's filter documentation not listing `TRASH` among
+  valid action labels. Worth recording, because that undocumented gap looked
+  exactly like the `411` and turned out to be fine.
+- **Scanning, grouping, the safety gate** — a real mailbox, 61 senders found
+  from 200 messages, split 57 one-click / 2 mailto / 2 link-only.
+
+Still only exercised against mocks: sending unsubscribe mail through Gmail, and
+the count-then-read scan rework.
+
+**How the block was nearly written off**: the tester looked for Gmail's "Block
+sender" button, saw it still there, and concluded the filter had not been
+created. That button is present on every message regardless of any filter, and
+Gmail's own Block sends to Spam while this sends to Trash — different mechanism
+entirely. The same shape of mistake as "I still see the unsubscribe link".
+Neither button is state; both are always there.
+
+### The original position, kept for context
+
+At first there were no Google credentials available, so **no code path that
+talks to Google had run against Google.** The Gmail client, the OAuth flow and the
 scanner are covered by tests against a mock server and a local loopback, which
 catches shape and logic errors but not the things only reality produces:
 Google's exact error bodies, real rate-limit behaviour, oddities in real

@@ -108,6 +108,9 @@ export default function Results({
             {report.blocked.confirmed !== null &&
               report.blocked.confirmed === report.blocked.blocked &&
               " Checked afterwards — the filters are there."}
+            {" "}
+            Gmail's own "Block sender" button stays on every email whether you've
+            filtered them or not, so it isn't a way to tell — the Filters tab is.
             {report.blocked.confirmed !== null &&
               report.blocked.confirmed < report.blocked.blocked &&
               ` Checked afterwards, and only ${report.blocked.confirmed} of them actually exist.`}
