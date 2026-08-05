@@ -4,14 +4,20 @@ import * as api from "../api";
 import { Checkbox, Notice, formatDate, plural } from "../components/ui";
 import { errorMessage, methodLabel, type Sender } from "../types";
 
-type Filter = "all" | "automatic" | "manual" | "flagged";
+type Filter = "all" | "automatic" | "manual" | "flagged" | "handled";
 
 const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "Everyone" },
+  { value: "all", label: "Not done yet" },
   { value: "automatic", label: "Automatic" },
   { value: "manual", label: "Needs a click" },
   { value: "flagged", label: "Worth a look" },
+  { value: "handled", label: "Already done" },
 ];
+
+/** Senders that have been acted on and need nothing further. */
+function isHandled(s: Sender): boolean {
+  return s.outcome !== null && (s.outcome.status === "done" || s.outcome.status === "sent");
+}
 
 /**
  * The main screen.
@@ -53,6 +59,11 @@ export default function SenderList({
       if (q && !`${s.display_name} ${s.address}`.toLowerCase().includes(q)) {
         return false;
       }
+      // Anything already handled drops out of every view except its own. A
+      // list that never shrinks as you work through it makes the work feel
+      // like it did not happen.
+      if (filter !== "handled" && isHandled(s)) return false;
+
       switch (filter) {
         case "automatic":
           return s.method.kind === "one_click";
@@ -60,6 +71,8 @@ export default function SenderList({
           return s.method.kind === "manual_link" || s.method.kind === "mailto";
         case "flagged":
           return s.assessment.caution;
+        case "handled":
+          return isHandled(s);
         default:
           return true;
       }
@@ -97,6 +110,8 @@ export default function SenderList({
       setProblem(errorMessage(e));
     }
   }
+
+  const handledCount = senders.filter(isHandled).length;
 
   const flaggedSelected = senders.filter(
     (s) => selected.has(s.address) && s.assessment.caution
@@ -141,7 +156,9 @@ export default function SenderList({
         <div className="row" style={{ padding: "calc(var(--step) * 3) calc(var(--step) * 3)" }}>
           <span className="muted small">
             {plural(visible.length, "sender")}
-            {visible.length !== senders.length && ` of ${senders.length}`}
+            {handledCount > 0 && filter !== "handled" && (
+              <> · {handledCount} already done, hidden</>
+            )}
           </span>
           <div className="spacer" />
           <button
@@ -170,7 +187,9 @@ export default function SenderList({
             <p style={{ margin: "0 auto" }}>
               {senders.length === 0
                 ? "Nobody's mailing you in bulk — or Hush hasn't looked yet."
-                : "Nothing matches that."}
+                : handledCount === senders.length
+                  ? "All done — every sender here has been handled."
+                  : "Nothing matches that."}
             </p>
             {senders.length === 0 && (
               <div>

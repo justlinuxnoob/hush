@@ -29,8 +29,6 @@ let status: Status = {
   has_credentials: true,
   can_send: false,
   can_delete: false,
-  // Off, matching the real default since 0.2.3.
-  dry_run: false,
   mailto_mode: "hand_off",
   keychain_available: true,
   token_storage: "keychain",
@@ -148,21 +146,16 @@ function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean):
     .map((s) => ({
       address: s.address,
       display_name: s.display_name,
-      status: status.dry_run
-        ? ("simulated" as const)
-        : s.method.kind === "one_click"
-          ? ("done" as const)
-          : ("needs_you" as const),
-      detail: status.dry_run
-        ? "Dry run — nothing was sent. Would have: unsubscribe automatically"
-        : s.method.kind === "one_click"
-          ? "Unsubscribed automatically"
-          : "Open this one yourself to finish",
+      status: s.method.kind === "one_click" ? ("sent" as const) : ("needs_you" as const),
+      detail:
+        s.method.kind === "one_click"
+          ? "Their server accepted it"
+          : "Open their page and press their unsubscribe button",
       link: s.method.kind === "manual_link" ? s.method.url : null,
       at_ms: Date.now(),
     }));
   const binned = selectable(addresses).reduce((n, s) => n + s.bulk_count, 0);
-  if (!status.dry_run) {
+  {
     // The real backend records outcomes, which is what puts the "Already
     // handled" badge on a sender. Mirror it so the demo matches.
     const byAddress = new Map(outcomes.map((o) => [o.address, o]));
@@ -171,7 +164,7 @@ function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean):
     );
   }
 
-  if (deleteBacklog && !status.dry_run) {
+  if (deleteBacklog) {
     // The real backend forgets binned mail so counts stay true; do the same.
     const hit = new Set(selectable(addresses).map((s) => s.address));
     senders = senders
@@ -190,10 +183,7 @@ function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean):
       ? {
           trashed: binned,
           failed: 0,
-          simulated: status.dry_run,
-          // The real backend re-queries Gmail to confirm; a rehearsal checks
-          // nothing, and a real run here has nothing to check against.
-          still_present: status.dry_run ? null : 0,
+          still_present: 0,
         }
       : null,
   };
@@ -229,10 +219,6 @@ const handlers: Record<string, (a: Args) => unknown> = {
     return undefined;
   },
   mark_manual_done: () => undefined,
-  set_dry_run: (a) => {
-    status = { ...status, dry_run: Boolean(a.on) };
-    return undefined;
-  },
   set_mailto_mode: (a) => {
     status = { ...status, mailto_mode: a.mode as Status["mailto_mode"] };
     return undefined;

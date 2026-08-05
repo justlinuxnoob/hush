@@ -233,6 +233,44 @@ impl Store {
         Ok(())
     }
 
+    /// Drop local rows for messages Gmail no longer returns.
+    ///
+    /// A scan only ever added, so anything deleted in Gmail — by the user, or
+    /// by a previous tidy-up — lingered here forever and kept showing up. This
+    /// makes a rescan a genuine reconciliation rather than a top-up.
+    ///
+    /// Scoped by date, because a six-month scan says nothing about what exists
+    /// outside that window and must not delete rows it never looked for.
+    pub fn reconcile(&self, account: &str, seen: &[String], since_ms: i64) -> Result<u64> {
+        let mut conn = self.lock()?;
+        let tx = conn.transaction()?;
+        let removed;
+        {
+            // A temporary table beats a WHERE ... NOT IN (?, ?, ... × 40,000).
+            tx.execute_batch(
+                "CREATE TEMP TABLE IF NOT EXISTS seen_ids (id TEXT PRIMARY KEY);
+                 DELETE FROM seen_ids;",
+            )?;
+            {
+                let mut stmt =
+                    tx.prepare_cached("INSERT OR IGNORE INTO seen_ids (id) VALUES (?1)")?;
+                for id in seen {
+                    stmt.execute(params![id])?;
+                }
+            }
+            removed = tx.execute(
+                "DELETE FROM messages
+                 WHERE account = ?1
+                   AND date_ms >= ?2
+                   AND id NOT IN (SELECT id FROM seen_ids)",
+                params![account, since_ms],
+            )? as u64;
+            tx.execute_batch("DROP TABLE IF EXISTS seen_ids;")?;
+        }
+        tx.commit()?;
+        Ok(removed)
+    }
+
     // --- senders -----------------------------------------------------------
 
     /// Build the sender list the interface shows.
@@ -595,7 +633,6 @@ fn status_to_str(s: &OutcomeStatus) -> &'static str {
         OutcomeStatus::Sent => "sent",
         OutcomeStatus::NeedsYou => "needs_you",
         OutcomeStatus::Failed => "failed",
-        OutcomeStatus::Simulated => "simulated",
     }
 }
 
@@ -604,7 +641,6 @@ fn status_from_str(s: &str) -> OutcomeStatus {
         "done" => OutcomeStatus::Done,
         "sent" => OutcomeStatus::Sent,
         "needs_you" => OutcomeStatus::NeedsYou,
-        "simulated" => OutcomeStatus::Simulated,
         _ => OutcomeStatus::Failed,
     }
 }
@@ -818,11 +854,11 @@ mod tests {
         )
         .unwrap();
         s.set_never_touch(ACC, "keep@x.example", true).unwrap();
-        s.set_setting("dry_run", "false").unwrap();
+        s.set_setting("mailto_mode", "hand_off").unwrap();
 
         s.erase(true).unwrap();
         assert_eq!(s.message_count(ACC).unwrap(), 0);
-        assert_eq!(s.get_setting("dry_run").unwrap(), None);
+        assert_eq!(s.get_setting("mailto_mode").unwrap(), None);
         assert_eq!(s.never_touch(ACC).unwrap(), vec!["keep@x.example"]);
 
         s.erase(false).unwrap();
@@ -952,6 +988,52 @@ mod tests {
             s.senders(ACC).unwrap().is_empty(),
             "a sender with only receipts left is not unsubscribable"
         );
+    }
+
+    #[test]
+    fn a_rescan_drops_mail_that_is_no_longer_in_gmail() {
+        // The drift this fixes: delete something in Gmail yourself, and Hush
+        // kept showing it forever because a scan only ever added.
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://x.example/u>");
+        s.put_messages(
+            ACC,
+            &[
+                msg("still-there", "a@x.example", "Hi", 5, lu),
+                msg("user-deleted", "a@x.example", "Hi", 6, lu),
+            ],
+        )
+        .unwrap();
+        assert_eq!(s.senders(ACC).unwrap()[0].message_count, 2);
+
+        // Gmail now returns only the one that survives.
+        let removed = s.reconcile(ACC, &["still-there".to_string()], 0).unwrap();
+
+        assert_eq!(removed, 1);
+        assert_eq!(s.senders(ACC).unwrap()[0].message_count, 1);
+    }
+
+    #[test]
+    fn reconciling_never_touches_mail_outside_the_scanned_window() {
+        // A six-month scan says nothing about what exists before it, so it must
+        // not delete rows it never went looking for.
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://x.example/u>");
+        s.put_messages(
+            ACC,
+            &[
+                msg("old", "a@x.example", "Hi", 1, lu),
+                msg("recent", "a@x.example", "Hi", 100, lu),
+            ],
+        )
+        .unwrap();
+
+        // Only the recent window was scanned, and it came back empty.
+        let removed = s.reconcile(ACC, &[], 50 * DAY).unwrap();
+
+        assert_eq!(removed, 1, "only the in-window message went");
+        assert_eq!(s.message_count(ACC).unwrap(), 1);
+        assert_eq!(s.senders(ACC).unwrap()[0].message_count, 1);
     }
 
     #[test]

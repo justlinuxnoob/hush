@@ -12,7 +12,7 @@ export interface Assessment {
   reasons: string[];
 }
 
-export type OutcomeStatus = "done" | "sent" | "needs_you" | "failed" | "simulated";
+export type OutcomeStatus = "done" | "sent" | "needs_you" | "failed";
 
 export interface Outcome {
   address: string;
@@ -49,7 +49,6 @@ export interface Status {
   has_credentials: boolean;
   can_send: boolean;
   can_delete: boolean;
-  dry_run: boolean;
   mailto_mode: MailtoMode;
   keychain_available: boolean;
   token_storage: TokenStorage | null;
@@ -91,8 +90,6 @@ export interface TrashReport {
   failed: number;
   /** How many binned messages Gmail still showed afterwards. null = not checked. */
   still_present: number | null;
-  /** True when it was a rehearsal and nothing actually moved. */
-  simulated: boolean;
 }
 
 export interface RunReport {

@@ -14,7 +14,6 @@ use crate::unsub::MailtoMode;
 pub const SETTING_ACCOUNT: &str = "account_email";
 pub const SETTING_CLIENT_ID: &str = "client_id";
 pub const SETTING_CLIENT_SECRET: &str = "client_secret";
-pub const SETTING_DRY_RUN: &str = "dry_run";
 pub const SETTING_MAILTO_MODE: &str = "mailto_mode";
 pub const SETTING_SEEN_WELCOME: &str = "seen_welcome";
 /// The permissions Google actually granted last time.
@@ -90,24 +89,6 @@ impl AppState {
 
     pub fn account(&self) -> Result<Option<String>> {
         self.store.get_setting(SETTING_ACCOUNT)
-    }
-
-    /// Dry run is on until the user turns it off. A first launch that quietly
-    /// starts firing real requests would be the wrong surprise to spring.
-    pub fn dry_run(&self) -> bool {
-        matches!(
-            self.store
-                .get_setting(SETTING_DRY_RUN)
-                .ok()
-                .flatten()
-                .as_deref(),
-            None | Some("true")
-        )
-    }
-
-    pub fn set_dry_run(&self, on: bool) -> Result<()> {
-        self.store
-            .set_setting(SETTING_DRY_RUN, if on { "true" } else { "false" })
     }
 
     pub fn mailto_mode(&self) -> MailtoMode {

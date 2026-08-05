@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import * as api from "../api";
 import { Notice, plural } from "../components/ui";
-import { errorMessage, type Outcome, type RunReport, type Status } from "../types";
+import { errorMessage, type Outcome, type RunReport } from "../types";
 
 /**
  * What actually happened.
@@ -11,21 +11,15 @@ import { errorMessage, type Outcome, type RunReport, type Status } from "../type
  * ticks things off, and is the only place the app asks anything of them.
  */
 export default function Results({
-  status,
   report,
   onFinish,
-  onDoItForReal,
 }: {
-  status: Status;
   report: RunReport;
   onFinish: () => void;
-  /** Go straight back to the confirmation, switched to the real thing. */
-  onDoItForReal: () => void;
 }) {
   const [done, setDone] = useState<Set<string>>(new Set());
   const [problem, setProblem] = useState<string | null>(null);
 
-  const simulated = report.outcomes.filter((o) => o.status === "simulated");
   const succeeded = report.outcomes.filter((o) => o.status === "done");
   const sent = report.outcomes.filter((o) => o.status === "sent");
   const needsYou = report.outcomes.filter((o) => o.status === "needs_you");
@@ -54,12 +48,10 @@ export default function Results({
   const acted = succeeded.length + sent.length + needsYou.length + failed.length;
   const binned = report.trash?.trashed ?? 0;
 
-  const headline = status.dry_run
-    ? "Nothing happened — that was the practice run"
-    : // A bin-only run has no unsubscribe outcomes at all, and "Nothing to
-      // report" would be a strange thing to say after moving five hundred
-      // emails.
-      acted === 0 && binned > 0
+  // A bin-only run has no unsubscribe outcomes at all, and "Nothing to report"
+  // would be a strange thing to say after moving five hundred emails.
+  const headline =
+    acted === 0 && binned > 0
       ? `${plural(binned, "old email")} moved to Trash`
       : summarise(succeeded.length + sent.length, needsYou.length);
 
@@ -68,12 +60,6 @@ export default function Results({
       <div className="inner stack stack-8">
         <div className="stack stack-3">
           <h1>{headline}</h1>
-          {status.dry_run && (
-            <p className="lede">
-              No emails were sent, nothing was moved, and nobody was
-              unsubscribed. Below is exactly what Hush would do.
-            </p>
-          )}
         </div>
 
         {problem && <Notice tone="problem">{problem}</Notice>}
@@ -86,7 +72,7 @@ export default function Results({
           </Notice>
         )}
 
-        {report.trash && report.trash.trashed === 0 && !report.trash.simulated && (
+        {report.trash && report.trash.trashed === 0 && (
           <Notice tone="caution">
             Nothing was moved to Trash. These senders had no bulk emails left to
             bin — possibly because a previous run already did it.
@@ -94,10 +80,8 @@ export default function Results({
         )}
 
         {report.trash && report.trash.trashed > 0 && (
-          <Notice tone={report.trash.simulated ? "accent" : "calm"}>
-            {report.trash.simulated
-              ? `${plural(report.trash.trashed, "old email")} would move to your Gmail Trash.`
-              : `${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}
+          <Notice tone="calm">
+            {`${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}
             {report.trash.failed > 0 &&
               ` ${report.trash.failed} couldn't be moved and were left alone.`}
             {report.trash.still_present === 0 &&
@@ -108,17 +92,6 @@ export default function Results({
           </Notice>
         )}
 
-        {simulated.length > 0 && (
-          <Section title={`${plural(simulated.length, "sender")} would be handled`}>
-            {simulated.map((o) => (
-              <div key={o.address} className="result-row">
-                <span className="result-name">{o.display_name}</span>
-                <div className="spacer" />
-                <span className="muted small">{withoutPrefix(o.detail)}</span>
-              </div>
-            ))}
-          </Section>
-        )}
 
         {succeeded.length > 0 && (
           <Section title={`${plural(succeeded.length, "sender")} finished`}>
@@ -218,25 +191,6 @@ export default function Results({
           </Section>
         )}
 
-        {status.dry_run ? (
-          <div className="card stack stack-3">
-            <div className="stack">
-              <strong>Happy with that? Do it for real.</strong>
-              <span className="muted small">
-                Same senders, same choices — except this time it actually
-                happens.
-              </span>
-            </div>
-            <div className="row">
-              <button className="btn-primary" onClick={onDoItForReal} autoFocus>
-                Do it for real
-              </button>
-              <button className="btn-quiet" onClick={onFinish}>
-                Back to the list
-              </button>
-            </div>
-          </div>
-        ) : (
           <div className="row">
             <button className="btn-primary" onClick={onFinish} autoFocus>
               Back to the list
@@ -245,7 +199,6 @@ export default function Results({
               Senders usually stop within a few days. Nothing was deleted.
             </span>
           </div>
-        )}
       </div>
     </div>
   );
@@ -267,15 +220,6 @@ function Section({
       <div>{children}</div>
     </div>
   );
-}
-
-/**
- * Drop the "Dry run — " lead-in, which the heading already says, and restore
- * the capital the strip takes with it.
- */
-function withoutPrefix(detail: string): string {
-  const rest = detail.replace(/^Dry run\s*[—-]\s*/, "");
-  return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
 /** "42 unsubscribed, 8 need one click from you." */

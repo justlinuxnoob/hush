@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import * as api from "../api";
-import { Notice, Switch, formatDate } from "../components/ui";
+import { Notice, formatDate } from "../components/ui";
 import { errorCode, errorMessage, type Status } from "../types";
 
 export default function Settings({
@@ -93,25 +93,6 @@ export default function Settings({
           <h3>How Hush behaves</h3>
 
           <div className="card stack stack-4">
-            <div className="row" style={{ alignItems: "flex-start" }}>
-              <div className="stack" style={{ flex: 1 }}>
-                <strong>Practice mode</strong>
-                <span className="muted small">
-                  Off. When on, Hush goes through the motions and sends nothing
-                  — useful if you want to see what a run would do first. It
-                  used to be on by default, which made the app look broken, so
-                  now you have to ask for it.
-                </span>
-              </div>
-              <Switch
-                on={status.dry_run}
-                onChange={(on) => guard(() => api.setDryRun(on))}
-                label={status.dry_run ? "On" : "Off"}
-              />
-            </div>
-
-            <hr className="rule" />
-
             <div className="stack stack-3">
               <div className="stack">
                 <strong>Unsubscribes that work by email</strong>

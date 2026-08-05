@@ -59,7 +59,6 @@ pub fn run() {
             commands::mark_manual_done,
             commands::outcomes,
             commands::open_link,
-            commands::set_dry_run,
             commands::set_mailto_mode,
             commands::data_location,
             commands::erase_everything,

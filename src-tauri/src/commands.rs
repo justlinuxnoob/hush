@@ -36,7 +36,6 @@ pub struct Status {
     pub can_send: bool,
     /// Whether Hush may move old mail to Trash. Opt-in, and off by default.
     pub can_delete: bool,
-    pub dry_run: bool,
     pub mailto_mode: MailtoMode,
     /// False on machines with no working secret store; the interface warns that
     /// the connection will not survive quitting.
@@ -75,7 +74,6 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
         has_credentials: state.credentials()?.is_some(),
         can_send: session.as_ref().is_some_and(|s| s.can_send),
         can_delete: session.as_ref().is_some_and(|s| s.can_delete),
-        dry_run: state.dry_run(),
         mailto_mode: state.mailto_mode(),
         keychain_available: Keychain::is_available(),
         token_storage: session.as_ref().map(|s| s.storage),
@@ -390,7 +388,6 @@ pub async fn plan_unsubscribe(
 ) -> Result<Vec<PlannedAction>> {
     let requests = resolve(&state, &selection.addresses).await?;
     let executor = Executor::new(
-        state.dry_run(),
         state.mailto_mode(),
         state.account_or_stored().await.unwrap_or_default(),
     )?;
@@ -412,9 +409,8 @@ pub async fn run_unsubscribe(
 ) -> Result<RunReport> {
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
-    let dry_run = state.dry_run();
 
-    let mut executor = Executor::new(dry_run, state.mailto_mode(), account.clone())?;
+    let mut executor = Executor::new(state.mailto_mode(), account.clone())?;
     if state.mailto_mode() == MailtoMode::SendViaGmail {
         let session = state.session.read().await;
         let session = session.as_ref().ok_or(Error::Unauthorized)?;
@@ -445,19 +441,15 @@ pub async fn run_unsubscribe(
     };
 
     if delete_backlog && !cancel.is_cancelled() {
-        report.trash = Some(tidy_up(&state, &account, &requests, dry_run, &cancel, &app).await?);
+        report.trash = Some(tidy_up(&state, &account, &requests, &cancel, &app).await?);
     }
 
     *state.run_cancel.write().await = None;
 
-    // A dry run leaves no trace: recording simulated outcomes would make the
-    // list look acted-upon when nothing happened.
-    if !dry_run {
-        for outcome in &report.outcomes {
-            state.store.record_outcome(&account, outcome)?;
-        }
-        open_handoffs(&report.handoffs);
+    for outcome in &report.outcomes {
+        state.store.record_outcome(&account, outcome)?;
     }
+    open_handoffs(&report.handoffs);
 
     Ok(report)
 }
@@ -472,7 +464,6 @@ async fn tidy_up(
     state: &AppState,
     account: &str,
     requests: &[UnsubRequest],
-    dry_run: bool,
     cancel: &Cancel,
     app: &AppHandle,
 ) -> Result<TrashReport> {
@@ -491,16 +482,15 @@ async fn tidy_up(
         ids.extend(state.store.bulk_message_ids(account, &r.address)?);
     }
 
-    let mut report =
-        crate::unsub::trash_messages_reporting(&session.gmail, &ids, dry_run, cancel, |p| {
-            let _ = app.emit(EVENT_RUN_PROGRESS, p);
-        })
-        .await;
+    let mut report = crate::unsub::trash_messages_reporting(&session.gmail, &ids, cancel, |p| {
+        let _ = app.emit(EVENT_RUN_PROGRESS, p);
+    })
+    .await;
 
     // Check the mailbox rather than trusting our own HTTP responses. Gmail's
     // message list excludes Trash, so anything binned that still comes back
     // under a search for that sender did not actually move.
-    if !dry_run && !cancel.is_cancelled() {
+    if !cancel.is_cancelled() {
         let senders: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
         report.still_present =
             crate::unsub::verify_binned(&session.gmail, &senders, &report.moved_ids, cancel).await;
@@ -508,10 +498,7 @@ async fn tidy_up(
 
     // Drop what actually moved, so the sender's count reflects reality straight
     // away and a second tidy-up does not re-attempt mail already in the bin.
-    // A rehearsal moved nothing, so it forgets nothing.
-    if !dry_run {
-        state.store.forget_messages(account, &report.moved_ids)?;
-    }
+    state.store.forget_messages(account, &report.moved_ids)?;
     Ok(report)
 }
 
@@ -565,11 +552,6 @@ pub async fn open_link(url: String) -> Result<()> {
 // --- settings -------------------------------------------------------------
 
 #[tauri::command]
-pub async fn set_dry_run(state: State<'_, AppState>, on: bool) -> Result<()> {
-    state.set_dry_run(on)
-}
-
-#[tauri::command]
 pub async fn set_mailto_mode(state: State<'_, AppState>, mode: MailtoMode) -> Result<()> {
     state.set_mailto_mode(mode)
 }
@@ -597,7 +579,7 @@ pub fn open_store(app: &AppHandle) -> Result<Store> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{now_ms, OutcomeStatus};
+    use crate::model::now_ms;
     use crate::parse::UnsubMethod;
     use crate::store::Store;
 
@@ -665,36 +647,11 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_is_on_before_anyone_has_chosen() {
-        let (state, _) = state_with(&[]);
-        assert!(state.dry_run(), "dry run must default to on");
-        state.set_dry_run(false).unwrap();
-        assert!(!state.dry_run());
-        state.set_dry_run(true).unwrap();
-        assert!(state.dry_run());
-    }
-
-    #[test]
     fn the_mailto_default_needs_no_extra_permission() {
         let (state, _) = state_with(&[]);
         assert_eq!(state.mailto_mode(), MailtoMode::HandOff);
         state.set_mailto_mode(MailtoMode::SendViaGmail).unwrap();
         assert_eq!(state.mailto_mode(), MailtoMode::SendViaGmail);
-    }
-
-    #[tokio::test]
-    async fn a_dry_run_leaves_no_recorded_outcome() {
-        let (state, account) = state_with(&[msg("a@x.example", Some("<https://x.example/u>"))]);
-        assert!(state.dry_run());
-
-        let requests = resolve(&state, &["a@x.example".into()]).await.unwrap();
-        let executor = Executor::new(true, MailtoMode::HandOff, account.clone()).unwrap();
-        let report = executor.run(&requests, &crate::gmail::Cancel::new()).await;
-
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::Simulated);
-        // `run_unsubscribe` skips recording in dry run; confirm the store is
-        // still untouched so the list cannot look acted-upon.
-        assert!(state.store.outcomes(&account).unwrap().is_empty());
     }
 
     #[tokio::test]

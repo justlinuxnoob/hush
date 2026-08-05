@@ -76,6 +76,9 @@ impl Scanner {
             };
 
         let known = self.store.known_ids(&self.account)?;
+        // Every id Gmail returns this sweep, so the end of a completed scan can
+        // drop local rows for mail that is no longer there.
+        let mut seen: Vec<String> = Vec::new();
         let mut progress = ScanProgress {
             scanned: self.store.message_count(&self.account)?,
             ..Default::default()
@@ -105,6 +108,10 @@ impl Scanner {
             // walks backwards; the interface stops quoting it entirely once the
             // real count overtakes it.
             progress.total_estimate = progress.total_estimate.max(page.total_estimate);
+
+            // Every id in scope, whether or not it needs fetching, so a
+            // completed sweep knows exactly what Gmail still holds.
+            seen.extend(page.ids.iter().cloned());
 
             let wanted: Vec<String> = page
                 .ids
@@ -139,6 +146,17 @@ impl Scanner {
             if page_token.is_none() {
                 break;
             }
+        }
+
+        // A completed sweep saw everything in scope, so anything held locally
+        // and not seen is gone from Gmail — deleted by the user, binned by a
+        // previous run, or moved out of the window. Only a *completed* scan can
+        // say that, which is why this is not done on a cancelled one.
+        let removed = self
+            .store
+            .reconcile(&self.account, &seen, depth_cutoff_ms(depth))?;
+        if removed > 0 {
+            log::info!("rescan dropped {removed} messages no longer in Gmail");
         }
 
         // Record where the mailbox stands now, so the next scan can ask only
@@ -184,6 +202,9 @@ impl Scanner {
             ..Default::default()
         };
         let known = self.store.known_ids(&self.account)?;
+        // Deliberately no reconciliation here. A history sweep reports only what
+        // *changed*, so treating it as the full picture would delete every
+        // message it did not mention — which is nearly all of them.
         let mut page_token = None;
         let mut latest_history = state.history_id.clone();
 
@@ -366,6 +387,23 @@ fn build_query(depth: ScanDepth) -> String {
     }
 }
 
+/// The earliest moment a given depth looked at, as epoch milliseconds.
+///
+/// Reconciliation must not delete rows outside the window that was actually
+/// searched — a six-month scan says nothing about last year's mail.
+fn depth_cutoff_ms(depth: ScanDepth) -> i64 {
+    const DAY: i64 = 86_400_000;
+    let days = match depth {
+        ScanDepth::SixMonths => 183,
+        ScanDepth::OneYear => 365,
+        ScanDepth::TwoYears => 730,
+        ScanDepth::Everything => return 0,
+    };
+    // A day of slack, since Gmail's `newer_than` and our clock need not agree
+    // to the minute and over-deleting is the worse mistake.
+    (now_ms() - (days + 1) * DAY).max(0)
+}
+
 fn depth_key(depth: ScanDepth) -> &'static str {
     match depth {
         ScanDepth::SixMonths => "six_months",
@@ -393,6 +431,25 @@ mod tests {
         let q = build_query(ScanDepth::Everything);
         assert!(!q.contains("newer_than"));
         assert!(q.contains("-in:sent"));
+    }
+
+    #[test]
+    fn a_depth_cutoff_never_reaches_past_what_was_searched() {
+        // Everything means everything; the rest leave older mail alone.
+        assert_eq!(depth_cutoff_ms(ScanDepth::Everything), 0);
+        let now = now_ms();
+        for (depth, days) in [
+            (ScanDepth::SixMonths, 183),
+            (ScanDepth::OneYear, 365),
+            (ScanDepth::TwoYears, 730),
+        ] {
+            let cutoff = depth_cutoff_ms(depth);
+            let age_days = (now - cutoff) / 86_400_000;
+            assert!(
+                age_days >= days && age_days <= days + 2,
+                "{depth:?} cutoff was {age_days} days back"
+            );
+        }
     }
 
     #[test]

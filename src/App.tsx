@@ -183,22 +183,12 @@ export default function App() {
 
       {screen === "results" && report && (
         <Results
-          status={status}
           report={report}
           onFinish={async () => {
             await reloadSenders();
             setChosen([]);
             setReport(null);
             setScreen("list");
-          }}
-          onDoItForReal={async () => {
-            await api.setDryRun(false);
-            setStatus(await api.status());
-            setReport(null);
-            // Straight back to the confirmation with the same senders picked,
-            // so "do it for real" is one more click rather than a re-run of
-            // the whole selection.
-            setScreen("confirm");
           }}
         />
       )}

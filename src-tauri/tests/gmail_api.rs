@@ -559,6 +559,112 @@ async fn a_second_scan_asks_only_for_what_changed() {
 }
 
 #[tokio::test]
+async fn a_rescan_drops_mail_that_has_left_the_mailbox() {
+    // A scan used to only ever add, so anything deleted in Gmail lingered here
+    // forever. A completed sweep now reconciles.
+    let server = MockServer::start().await;
+    mount_profile(&server).await;
+    mount_message_endpoint(&server, true).await;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let scanner = Scanner::new(
+        client(&server, FakeTokens::new(false)),
+        store.clone(),
+        ACCOUNT.into(),
+    );
+
+    // First sweep: three messages.
+    let first = Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}],
+            "resultSizeEstimate": 3
+        })))
+        .up_to_n_times(1)
+        .mount_as_scoped(&server)
+        .await;
+
+    scanner
+        .full_scan(ScanDepth::Everything, Cancel::new(), |_| {})
+        .await
+        .unwrap();
+    assert_eq!(store.message_count(ACCOUNT).unwrap(), 3);
+    drop(first);
+
+    // Second sweep: one of them is gone from Gmail.
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{"id": "m1"}, {"id": "m3"}],
+            "resultSizeEstimate": 2
+        })))
+        .mount(&server)
+        .await;
+
+    scanner
+        .full_scan(ScanDepth::Everything, Cancel::new(), |_| {})
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.message_count(ACCOUNT).unwrap(),
+        2,
+        "the message removed in Gmail should be gone here too"
+    );
+}
+
+#[tokio::test]
+async fn an_incremental_scan_never_deletes_what_it_did_not_look_for() {
+    // The dangerous mistake: a history sweep reports only what *changed*, so
+    // reconciling from it would delete nearly the whole database.
+    let server = MockServer::start().await;
+    mount_profile(&server).await;
+    mount_message_endpoint(&server, true).await;
+
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}],
+            "resultSizeEstimate": 3
+        })))
+        .mount(&server)
+        .await;
+    // History mentions exactly one new message and nothing else.
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/history"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "history": [{"messagesAdded": [{"message": {"id": "m9"}}]}],
+            "historyId": "999500"
+        })))
+        .mount(&server)
+        .await;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let scanner = Scanner::new(
+        client(&server, FakeTokens::new(false)),
+        store.clone(),
+        ACCOUNT.into(),
+    );
+
+    scanner
+        .full_scan(ScanDepth::Everything, Cancel::new(), |_| {})
+        .await
+        .unwrap();
+    assert_eq!(store.message_count(ACCOUNT).unwrap(), 3);
+
+    scanner
+        .incremental_scan(Cancel::new(), |_| {})
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.message_count(ACCOUNT).unwrap(),
+        4,
+        "the three existing messages must survive a history sweep"
+    );
+}
+
+#[tokio::test]
 async fn an_incremental_scan_needs_a_previous_full_one() {
     let server = MockServer::start().await;
     let store = Arc::new(Store::open_in_memory().unwrap());

@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 149 passing (135 unit, 14 against a mocked Gmail API) |
+| Rust tests | 150 passing (134 unit, 16 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -280,7 +280,7 @@ something does not answer**.
   turned the safety warning into wallpaper — and wallpaper is what you scroll
   past on your way to unsubscribing from your bank.
 
-## Practice mode, and why it is gone from the flow
+## Practice mode is gone entirely
 
 The original brief asked for a dry-run toggle, on by default for the first
 launch. It was built exactly as specified and turned out to be the single most
@@ -292,15 +292,52 @@ precisely as instructed. Hours went into hunting bugs elsewhere because the
 symptom of "practice mode on" is identical to the symptom of "completely
 broken", and the only clue was the word "Dry run" on a toggle in a corner.
 
-It now defaults off, is absent from the main flow, and survives as an opt-in
-setting for anyone who deliberately wants a rehearsal. The safety this project
-actually rests on never depended on it: the unsubscribe-header gate, the
-never-touch list, the transactional warnings, the confirmation screen and
-Trash-rather-than-permanent-delete are all unchanged.
+It has been removed outright — the setting, the execution mode, the
+`Simulated` outcome, all of it. What survives is the "show me exactly what gets
+sent" panel on the confirmation screen, which is a *preview*: it prints the
+literal request without running anything. That was always the useful half. Dry
+run was an execution mode that pretended to work, which is a different thing and
+only ever caused harm.
+
+The safety this project actually rests on never depended on it: the
+unsubscribe-header gate, the never-touch list, the transactional warnings, the
+confirmation screen and Trash-rather-than-permanent-delete are all unchanged.
 
 **The lesson is not "do not build dry-run modes."** It is that a default which
 makes an app silently do nothing is indistinguishable from a broken app, and
 the person who chose the default is the last one who will notice.
+
+## A rescan reconciles rather than only adding
+
+Found by the obvious question: does "Scan again" actually rescan?
+
+It did not. A scan skipped ids it already held and only ever inserted, so mail
+deleted in Gmail — by the user, or by a previous tidy-up — stayed in the local
+list forever and nothing corrected it. The list drifted from the mailbox and
+kept drifting.
+
+A completed scan now records every id Gmail returned and drops local rows in the
+scanned window that were not among them.
+
+The first attempt at this **deleted the entire local database on every scan** —
+the list of seen ids was declared and never filled, so everything looked absent.
+The mocked API tests caught it immediately, which is the clearest argument for
+them this project has produced. Worse, the same edit landed in the incremental
+path, where reconciling is categorically wrong: a history sweep reports only
+what *changed*, so treating it as the full picture would delete every message it
+did not mention. Both are now pinned by tests that assert survival rather than
+deletion. Listing ids costs 5 quota units per
+500, so reconciliation is nearly free. Two things make it safe: it is scoped by
+date, because a six-month scan says nothing about last year, and it only runs on
+a scan that *finished*, because a cancelled one has not seen everything and
+would delete the remainder.
+
+## Handled senders leave the list
+
+They stayed put looking untouched after being unsubscribed, which reads as
+nothing having happened. A list that never shrinks as you work through it makes
+the work feel imaginary. They now drop out of every view except the "Already
+done" filter, with a count of how many are hidden.
 
 ## Unsubscribing and binning are separate choices
 

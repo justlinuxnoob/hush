@@ -80,8 +80,6 @@ pub enum OutcomeStatus {
     /// The user must open a link themselves.
     NeedsYou,
     Failed,
-    /// A dry run: nothing left the machine.
-    Simulated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

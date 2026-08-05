@@ -70,7 +70,6 @@ export const markManualDone = (address: string) =>
 
 export const outcomes = () => invoke<Outcome[]>("outcomes");
 export const openLink = (url: string) => invoke<void>("open_link", { url });
-export const setDryRun = (on: boolean) => invoke<void>("set_dry_run", { on });
 export const setMailtoMode = (mode: MailtoMode) =>
   invoke<void>("set_mailto_mode", { mode });
 export const dataLocation = () => invoke<string>("data_location");

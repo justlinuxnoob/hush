@@ -5,8 +5,6 @@
 //! * **A bare link is never fired automatically.** Only RFC 8058 one-click
 //!   endpoints get a POST, because only those have promised that a POST means
 //!   "unsubscribe" and nothing else. Everything else goes to the human.
-//! * **Dry run means dry run.** In dry-run mode no socket is opened and no mail
-//!   is sent; the outcomes describe exactly what would have happened.
 //! * **Clearing out old mail is opt-in, and only ever moves it to Trash.**
 //!   Unsubscribing is the point; tidying up the backlog is an extra the user
 //!   asks for each time. Gmail keeps trashed mail for 30 days, so a mistake
@@ -107,7 +105,6 @@ pub struct PlannedAction {
 
 pub struct Executor {
     http: reqwest::Client,
-    pub dry_run: bool,
     pub mailto_mode: MailtoMode,
     gmail: Option<Arc<GmailClient>>,
     from_address: String,
@@ -148,7 +145,7 @@ pub struct RunReport {
 }
 
 impl Executor {
-    pub fn new(dry_run: bool, mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
+    pub fn new(mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("hush/", env!("CARGO_PKG_VERSION")))
             .timeout(HTTP_TIMEOUT)
@@ -160,7 +157,6 @@ impl Executor {
             .build()?;
         Ok(Self {
             http,
-            dry_run,
             mailto_mode,
             gmail: None,
             from_address,
@@ -353,18 +349,6 @@ impl Executor {
             link,
             at_ms: now_ms(),
         };
-
-        if self.dry_run {
-            let planned = self.plan_one(r);
-            return Ok((
-                out(
-                    OutcomeStatus::Simulated,
-                    &format!("Dry run — nothing was sent. Would have: {}", planned.what),
-                    link_of(&r.method),
-                ),
-                None,
-            ));
-        }
 
         match method {
             UnsubMethod::OneClick { url } => match self.one_click(url, cancel).await {
@@ -565,8 +549,6 @@ impl Executor {
 pub struct TrashReport {
     pub trashed: u64,
     pub failed: u64,
-    /// True when the run was a rehearsal and nothing actually moved.
-    pub simulated: bool,
     /// The messages that actually moved, so the caller can drop them from the
     /// local cache. Without this the sender would keep showing its old count
     /// and a second tidy-up would re-attempt mail already in the bin.
@@ -647,34 +629,21 @@ const TRASH_CONCURRENCY: usize = 8;
 pub async fn trash_messages(
     gmail: &Arc<GmailClient>,
     ids: &[String],
-    dry_run: bool,
     cancel: &crate::gmail::Cancel,
 ) -> TrashReport {
-    trash_messages_reporting(gmail, ids, dry_run, cancel, |_| {}).await
+    trash_messages_reporting(gmail, ids, cancel, |_| {}).await
 }
 
 /// As [`trash_messages`], but reporting as it goes.
 pub async fn trash_messages_reporting<F>(
     gmail: &Arc<GmailClient>,
     ids: &[String],
-    dry_run: bool,
     cancel: &crate::gmail::Cancel,
     mut on_progress: F,
 ) -> TrashReport
 where
     F: FnMut(&RunProgress),
 {
-    if dry_run {
-        return TrashReport {
-            trashed: ids.len() as u64,
-            failed: 0,
-            simulated: true,
-            // A rehearsal moved nothing, so nothing may be forgotten.
-            moved_ids: Vec::new(),
-            still_present: None,
-        };
-    }
-
     let mut report = TrashReport::default();
     let mut queue = ids.iter().cloned();
     // The id comes back with the result so a success can be recorded against
@@ -956,46 +925,13 @@ mod tests {
         }
     }
 
-    fn exec(dry_run: bool) -> Executor {
-        Executor::new(dry_run, MailtoMode::HandOff, "me@example.com".into()).unwrap()
-    }
-
-    // --- dry run -----------------------------------------------------------
-
-    #[tokio::test]
-    async fn a_dry_run_sends_nothing_and_says_so() {
-        // The endpoint is deliberately one that would fail loudly if contacted.
-        let requests = vec![
-            req(UnsubMethod::OneClick {
-                url: "https://127.0.0.1:1/u".into(),
-            }),
-            req(UnsubMethod::Mailto {
-                address: "leave@acme.example".into(),
-                subject: None,
-                body: None,
-            }),
-            req(UnsubMethod::ManualLink {
-                url: "https://acme.example/u".into(),
-            }),
-        ];
-        let report = exec(true)
-            .run(&requests, &crate::gmail::Cancel::new())
-            .await;
-
-        assert_eq!(report.outcomes.len(), 3);
-        for o in &report.outcomes {
-            assert_eq!(o.status, OutcomeStatus::Simulated);
-            assert!(o.detail.contains("nothing was sent"), "{}", o.detail);
-        }
-        assert!(
-            report.handoffs.is_empty(),
-            "a dry run must not open a mail app"
-        );
+    fn exec() -> Executor {
+        Executor::new(MailtoMode::HandOff, "me@example.com".into()).unwrap()
     }
 
     #[test]
     fn the_plan_shows_the_exact_request() {
-        let plan = exec(true).plan(&[req(UnsubMethod::OneClick {
+        let plan = exec().plan(&[req(UnsubMethod::OneClick {
             url: "https://acme.example/u".into(),
         })]);
         assert_eq!(plan.len(), 1);
@@ -1006,7 +942,7 @@ mod tests {
 
     #[test]
     fn a_manual_link_plan_promises_no_request() {
-        let plan = exec(false).plan(&[req(UnsubMethod::ManualLink {
+        let plan = exec().plan(&[req(UnsubMethod::ManualLink {
             url: "https://acme.example/u".into(),
         })]);
         assert!(plan[0].detail.contains("No request is sent"));
@@ -1015,9 +951,9 @@ mod tests {
     // --- real requests -----------------------------------------------------
 
     #[tokio::test]
-    async fn a_manual_link_never_fires_a_request_even_outside_dry_run() {
+    async fn a_manual_link_never_fires_a_request() {
         // This is the promise: link-only senders are listed, not actioned.
-        let report = exec(false)
+        let report = exec()
             .run(
                 &[req(UnsubMethod::ManualLink {
                     // Would be refused by vetting if it were ever sent.
@@ -1066,7 +1002,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_mailto_handoff_produces_a_draft_and_sends_nothing() {
-        let report = exec(false)
+        let report = exec()
             .run(
                 &[req(UnsubMethod::Mailto {
                     address: "leave@acme.example".into(),
@@ -1110,7 +1046,7 @@ mod tests {
             .await;
 
         // Drive one_click_once directly; vetting refuses loopback by design.
-        let e = exec(false);
+        let e = exec();
         let mut attempts = 0;
         for _ in 0..3 {
             attempts += 1;
@@ -1146,7 +1082,7 @@ mod tests {
 
         cancel.cancel();
         let started = std::time::Instant::now();
-        let report = exec(false).run(&requests, &cancel).await;
+        let report = exec().run(&requests, &cancel).await;
 
         assert!(
             started.elapsed() < Duration::from_secs(2),
@@ -1173,7 +1109,7 @@ mod tests {
         // 203.0.113.0/24 is reserved for documentation and never answers, so
         // this request hangs until either the timeout or the cancel wins.
         let started = std::time::Instant::now();
-        let report = exec(false)
+        let report = exec()
             .run(
                 &[req(UnsubMethod::OneClick {
                     url: "https://203.0.113.1/u".into(),
@@ -1194,7 +1130,7 @@ mod tests {
     async fn a_broken_first_route_falls_through_to_the_next() {
         // The sender offers one-click and a mailto. The one-click points at a
         // private address and will be refused, so the mailto must carry it.
-        let report = exec(false)
+        let report = exec()
             .run(
                 &[req_many(vec![
                     UnsubMethod::OneClick {
@@ -1216,7 +1152,7 @@ mod tests {
 
     #[tokio::test]
     async fn when_every_route_fails_the_link_is_still_offered() {
-        let report = exec(false)
+        let report = exec()
             .run(
                 &[req_many(vec![
                     UnsubMethod::OneClick {
@@ -1244,7 +1180,7 @@ mod tests {
         // A 200 means the sender accepted the request, not that they acted on
         // it — and nothing in the protocol can tell us which. So the way to
         // finish it by hand survives.
-        let report = exec(true)
+        let report = exec()
             .run(
                 &[req(UnsubMethod::OneClick {
                     url: "https://acme.example/u".into(),
@@ -1260,7 +1196,7 @@ mod tests {
 
     #[tokio::test]
     async fn sending_via_gmail_without_permission_fails_clearly() {
-        let e = Executor::new(false, MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
+        let e = Executor::new(MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
         let report = e
             .run(
                 &[req(UnsubMethod::Mailto {
@@ -1312,7 +1248,7 @@ mod tests {
         // Previously this reported a bare failure. A failure the user can do
         // nothing about is a dead end, so when a link exists it is offered and
         // the outcome says there is something left to do.
-        let report = exec(false)
+        let report = exec()
             .run(
                 &[req(UnsubMethod::OneClick {
                     url: "https://192.168.0.1/u".into(),
@@ -1471,33 +1407,6 @@ mod tests {
     // --- tidying up --------------------------------------------------------
 
     #[tokio::test]
-    async fn a_dry_run_bins_nothing() {
-        let server = wiremock::MockServer::start().await;
-        // Any request at all to the mock server fails this test.
-        wiremock::Mock::given(wiremock::matchers::any())
-            .respond_with(wiremock::ResponseTemplate::new(200))
-            .expect(0)
-            .mount(&server)
-            .await;
-
-        let gmail = Arc::new(
-            GmailClient::with_base(
-                &server.uri(),
-                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
-                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
-            )
-            .unwrap(),
-        );
-
-        let ids: Vec<String> = (0..25).map(|i| format!("m{i}")).collect();
-        let report = trash_messages(&gmail, &ids, true, &crate::gmail::Cancel::new()).await;
-
-        assert!(report.simulated);
-        assert_eq!(report.trashed, 25, "reports what it would have moved");
-        assert_eq!(report.failed, 0);
-    }
-
-    #[tokio::test]
     async fn trashing_calls_the_trash_endpoint_once_per_message() {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
@@ -1519,9 +1428,8 @@ mod tests {
         );
 
         let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let report = trash_messages(&gmail, &ids, false, &crate::gmail::Cancel::new()).await;
+        let report = trash_messages(&gmail, &ids, &crate::gmail::Cancel::new()).await;
 
-        assert!(!report.simulated);
         assert_eq!(report.trashed, 3);
         assert_eq!(report.failed, 0);
     }
@@ -1550,7 +1458,7 @@ mod tests {
         );
 
         let ids = vec!["ok1".into(), "bad".into(), "ok2".into()];
-        let report = trash_messages(&gmail, &ids, false, &crate::gmail::Cancel::new()).await;
+        let report = trash_messages(&gmail, &ids, &crate::gmail::Cancel::new()).await;
 
         assert_eq!(report.trashed, 2);
         assert_eq!(report.failed, 1);
@@ -1573,7 +1481,7 @@ mod tests {
             )
             .unwrap(),
         );
-        let report = trash_messages(&gmail, &[], false, &crate::gmail::Cancel::new()).await;
+        let report = trash_messages(&gmail, &[], &crate::gmail::Cancel::new()).await;
         assert_eq!(report.trashed, 0);
         assert_eq!(report.failed, 0);
     }
