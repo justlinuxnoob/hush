@@ -36,6 +36,8 @@ pub struct Status {
     pub can_send: bool,
     /// Whether Hush may move old mail to Trash. Opt-in, and off by default.
     pub can_delete: bool,
+    /// Whether Hush may create a Gmail filter to stop future mail outright.
+    pub can_block: bool,
     pub mailto_mode: MailtoMode,
     /// False on machines with no working secret store; the interface warns that
     /// the connection will not survive quitting.
@@ -74,6 +76,7 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
         has_credentials: state.credentials()?.is_some(),
         can_send: session.as_ref().is_some_and(|s| s.can_send),
         can_delete: session.as_ref().is_some_and(|s| s.can_delete),
+        can_block: session.as_ref().is_some_and(|s| s.can_block),
         mailto_mode: state.mailto_mode(),
         keychain_available: Keychain::is_available(),
         token_storage: session.as_ref().map(|s| s.storage),
@@ -120,6 +123,7 @@ pub async fn connect(
     state: State<'_, AppState>,
     allow_send: bool,
     allow_delete: bool,
+    allow_block: bool,
 ) -> Result<Status> {
     let creds = state
         .credentials()?
@@ -133,6 +137,9 @@ pub async fn connect(
     }
     if allow_delete {
         scopes.push(SCOPE_MODIFY);
+    }
+    if allow_block {
+        scopes.push(crate::auth::SCOPE_SETTINGS);
     }
 
     let cancel = Cancel::new();
@@ -164,6 +171,7 @@ pub async fn connect(
     // approve some permissions and decline others on the consent screen.
     let can_send = granted.contains("gmail.send");
     let can_delete = granted.contains("gmail.modify");
+    let can_block = granted.contains("gmail.settings.basic");
     // Remembered so a relaunch does not march the user back through Google's
     // consent page for permissions they have already given.
     state.store.set_setting(SETTING_GRANTED, &granted)?;
@@ -175,6 +183,7 @@ pub async fn connect(
         storage,
         can_send,
         can_delete,
+        can_block,
     });
 
     status(state).await
@@ -217,6 +226,7 @@ pub async fn resume_session(state: State<'_, AppState>) -> Result<Status> {
                 storage: TokenStorage::Keychain,
                 can_send: granted.contains("gmail.send"),
                 can_delete: granted.contains("gmail.modify"),
+                can_block: granted.contains("gmail.settings.basic"),
             });
         }
         Err(Error::Unauthorized) => {}
@@ -393,6 +403,7 @@ pub async fn plan_unsubscribe(
 ) -> Result<Vec<PlannedAction>> {
     let requests = resolve(&state, &selection.addresses).await?;
     let executor = Executor::new(
+        crate::unsub::Effort::Automatic,
         state.mailto_mode(),
         state.account_or_stored().await.unwrap_or_default(),
     )?;
@@ -411,11 +422,16 @@ pub async fn run_unsubscribe(
     selection: Selection,
     unsubscribe: bool,
     delete_backlog: bool,
+    block_future: bool,
 ) -> Result<RunReport> {
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
 
-    let mut executor = Executor::new(state.mailto_mode(), account.clone())?;
+    let mut executor = Executor::new(
+        crate::unsub::Effort::Automatic,
+        state.mailto_mode(),
+        account.clone(),
+    )?;
     if state.mailto_mode() == MailtoMode::SendViaGmail {
         let session = state.session.read().await;
         let session = session.as_ref().ok_or(Error::Unauthorized)?;
@@ -447,6 +463,21 @@ pub async fn run_unsubscribe(
 
     if delete_backlog && !cancel.is_cancelled() {
         report.trash = Some(tidy_up(&state, &account, &requests, &cancel, &app).await?);
+    }
+
+    if block_future && !cancel.is_cancelled() {
+        let session = state.session.read().await;
+        let session = session.as_ref().ok_or(Error::Unauthorized)?;
+        if !session.can_block {
+            return Err(Error::Setup(
+                "Hush needs permission to set up a Gmail filter for this. \
+                 Reconnect your account and allow it."
+                    .into(),
+            ));
+        }
+        let addresses: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
+        report.blocked =
+            Some(crate::unsub::block_senders(&session.gmail, &addresses, &cancel).await);
     }
 
     *state.run_cancel.write().await = None;

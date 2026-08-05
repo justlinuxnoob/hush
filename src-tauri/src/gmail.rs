@@ -274,6 +274,38 @@ impl GmailClient {
         .map(|_| ())
     }
 
+    /// Create a Gmail filter sending this sender's future mail straight to Trash.
+    ///
+    /// This is the difference between asking and deciding. An unsubscribe is a
+    /// request to a sender who may ignore it, may take a fortnight, or may have
+    /// you on four other lists. A filter is a rule in the user's own account
+    /// that applies to every message from that address from now on.
+    ///
+    /// Trash rather than permanent deletion, in keeping with the rest of the
+    /// app: mail sits there for 30 days and the user can look before it goes.
+    pub async fn block_sender(&self, address: &str, cancel: &Cancel) -> Result<String> {
+        let url = format!("{}/gmail/v1/users/me/settings/filters", self.base);
+        let payload = serde_json::json!({
+            "criteria": { "from": address },
+            "action": { "addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX"] }
+        });
+
+        let body = self
+            .request(crate::ratelimit::COST_FILTER_CREATE, cancel, |token| {
+                self.http.post(&url).bearer_auth(token).json(&payload)
+            })
+            .await?;
+
+        #[derive(Deserialize)]
+        struct Created {
+            #[serde(default)]
+            id: String,
+        }
+        Ok(serde_json::from_str::<Created>(&body)
+            .map(|c| c.id)
+            .unwrap_or_default())
+    }
+
     /// Send a raw RFC 5322 message. Only used for `mailto:` unsubscribes, and
     /// only when the user has granted the send permission.
     pub async fn send_raw(&self, raw_rfc822: &str) -> Result<()> {

@@ -89,6 +89,19 @@ export default function Results({
           </Notice>
         )}
 
+        {report.blocked && report.blocked.blocked > 0 && (
+          <Notice tone="accent">
+            {plural(report.blocked.blocked, "sender")} blocked — anything they
+            send from now on goes straight to Trash, whether or not they honour
+            the unsubscribe. You can see and undo these under Settings → Filters
+            in Gmail.
+            {report.blocked.failed > 0 &&
+              ` ${report.blocked.failed} couldn't be blocked${
+                report.blocked.problem ? ` — ${report.blocked.problem}` : ""
+              }.`}
+          </Notice>
+        )}
+
         {report.trash && report.trash.trashed > 0 && (
           <Notice tone="calm">
             {`${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}

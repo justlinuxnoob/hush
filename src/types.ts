@@ -49,6 +49,7 @@ export interface Status {
   has_credentials: boolean;
   can_send: boolean;
   can_delete: boolean;
+  can_block: boolean;
   mailto_mode: MailtoMode;
   keychain_available: boolean;
   token_storage: TokenStorage | null;
@@ -94,10 +95,17 @@ export interface TrashReport {
   problem: string | null;
 }
 
+export interface BlockReport {
+  blocked: number;
+  failed: number;
+  problem: string | null;
+}
+
 export interface RunReport {
   outcomes: Outcome[];
   handoffs: { address: string; mailto_url: string }[];
   trash: TrashReport | null;
+  blocked: BlockReport | null;
 }
 
 /** The shape every rejected command takes. */

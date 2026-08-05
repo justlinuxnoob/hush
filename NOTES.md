@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 154 passing (138 unit, 16 against a mocked Gmail API) |
+| Rust tests | 156 passing (140 unit, 16 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -306,6 +306,37 @@ confirmation screen and Trash-rather-than-permanent-delete are all unchanged.
 **The lesson is not "do not build dry-run modes."** It is that a default which
 makes an app silently do nothing is indistinguishable from a broken app, and
 the person who chose the default is the last one who will notice.
+
+## Unsubscribing alone was never going to be enough
+
+The complaint that produced this feature: "I don't want unhappy users saying
+I'm still receiving mail."
+
+Looking at how the established tools handle it turned up a line worth quoting:
+every mass-unsubscribe tool is a different interface over **three** controls —
+unsubscribe, block, or filter. Hush had built one of the three and called it
+finished.
+
+Unsubscribing is a *request*. It depends on the sender honouring it, doing so
+promptly, and not having the user on four other lists under a different address.
+Even a perfect implementation cannot promise the mail stops, which is why the
+wording had to keep hedging.
+
+A Gmail filter is not a request. `users.settings.filters.create` with
+`criteria.from` and `action.addLabelIds: ["TRASH"]` is a rule in the user's own
+account, and it works identically whether the sender is scrupulous, slow, or
+ignoring the unsubscribe outright. It needs `gmail.settings.basic`, it is
+visible and removable under Settings → Filters in Gmail, and it trashes rather
+than destroys.
+
+So the answer to "I'm still receiving mail" is: unsubscribe *and* block. The
+first is polite and stops it at source; the second is the guarantee. Blocking is
+opt-in, per run, like everything else here.
+
+**Worth keeping in mind**: this is the same lesson as the transactional-mail
+gate. When something cannot be guaranteed, either find a mechanism that can, or
+say plainly that it cannot — and never paper over the gap with confident
+wording.
 
 ## Deletion never worked: 411 Length Required
 

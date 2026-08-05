@@ -32,6 +32,8 @@ pub struct Session {
     pub can_send: bool,
     /// Whether Google granted the permission needed to move mail to Trash.
     pub can_delete: bool,
+    /// Whether Google granted the permission needed to create a filter.
+    pub can_block: bool,
 }
 
 pub struct AppState {

@@ -29,7 +29,7 @@ export default function Connect({
     setProblem(null);
     setBusy(true);
     try {
-      onConnected(await api.connect(false, false));
+      onConnected(await api.connect(false, false, false));
     } catch (e) {
       // Giving up is a choice, not a failure, so it earns no error message.
       if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));

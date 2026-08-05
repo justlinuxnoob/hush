@@ -121,7 +121,7 @@ export default function Settings({
                   onPick={() =>
                     guard(async () => {
                       if (!status.can_send) {
-                        const s = await api.connect(true, status.can_delete);
+                        const s = await api.connect(true, status.can_delete, status.can_block);
                         if (!s.can_send) return s;
                         await api.setMailtoMode("send_via_gmail");
                         return await api.status();

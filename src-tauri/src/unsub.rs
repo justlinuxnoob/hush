@@ -78,6 +78,25 @@ pub enum MailtoMode {
     SendViaGmail,
 }
 
+/// How much Hush should do on the user's behalf.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Effort {
+    /// Use every route the sender offers, falling back to the human only when
+    /// nothing automatic works.
+    #[default]
+    Automatic,
+    /// Send nothing. Produce the list of links and addresses and stop.
+    ///
+    /// Worth knowing before choosing it: opening a one-click endpoint in a
+    /// browser is a GET, and correctly-built endpoints ignore GET on purpose so
+    /// that spam scanners crawling links cannot unsubscribe people. For those
+    /// senders the POST *is* the unsubscribe, and doing it by hand may achieve
+    /// nothing at all. This exists for people who would rather see every step
+    /// themselves anyway.
+    ListOnly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnsubRequest {
     pub address: String,
@@ -105,6 +124,7 @@ pub struct PlannedAction {
 
 pub struct Executor {
     http: reqwest::Client,
+    pub effort: Effort,
     pub mailto_mode: MailtoMode,
     gmail: Option<Arc<GmailClient>>,
     from_address: String,
@@ -142,10 +162,55 @@ pub struct RunReport {
     pub handoffs: Vec<Handoff>,
     /// Present only when the user asked for their old mail to be cleared out.
     pub trash: Option<TrashReport>,
+    /// Present only when the user asked for future mail to be blocked.
+    pub blocked: Option<BlockReport>,
+}
+
+/// What happened when setting up filters to stop future mail.
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct BlockReport {
+    pub blocked: u64,
+    pub failed: u64,
+    pub problem: Option<String>,
+}
+
+/// Create a Gmail filter per sender, sending their future mail to Trash.
+///
+/// The honest difference between this and unsubscribing: unsubscribing is a
+/// request to the sender, and depends on them honouring it, doing so promptly,
+/// and not having the user on four other lists. A filter is a rule in the
+/// user's own account. It does not ask anyone, and it works the same whether
+/// the sender is scrupulous, slow, or ignoring the request entirely.
+pub async fn block_senders(
+    gmail: &Arc<GmailClient>,
+    senders: &[String],
+    cancel: &crate::gmail::Cancel,
+) -> BlockReport {
+    let mut report = BlockReport::default();
+
+    for address in senders {
+        if cancel.is_cancelled() {
+            break;
+        }
+        match gmail.block_sender(address, cancel).await {
+            Ok(id) => {
+                log::info!("blocked future mail from {address} (filter {id})");
+                report.blocked += 1;
+            }
+            Err(e) => {
+                log::warn!("couldn't block {address}: {e}");
+                if report.problem.is_none() {
+                    report.problem = Some(e.to_string());
+                }
+                report.failed += 1;
+            }
+        }
+    }
+    report
 }
 
 impl Executor {
-    pub fn new(mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
+    pub fn new(effort: Effort, mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("hush/", env!("CARGO_PKG_VERSION")))
             .timeout(HTTP_TIMEOUT)
@@ -157,6 +222,7 @@ impl Executor {
             .build()?;
         Ok(Self {
             http,
+            effort,
             mailto_mode,
             gmail: None,
             from_address,
@@ -291,6 +357,38 @@ impl Executor {
         } else {
             r.methods.clone()
         };
+
+        // Asked to send nothing: hand back whatever the sender published and
+        // let the human take it from here.
+        if self.effort == Effort::ListOnly {
+            let link = routes.iter().find_map(link_of);
+            return Ok((
+                Outcome {
+                    address: r.address.clone(),
+                    display_name: r.display_name.clone(),
+                    status: if link.is_some() {
+                        OutcomeStatus::NeedsYou
+                    } else {
+                        OutcomeStatus::Failed
+                    },
+                    detail: match routes.first() {
+                        Some(UnsubMethod::Mailto { address, .. }) => {
+                            format!("Send an email to {address}")
+                        }
+                        Some(UnsubMethod::OneClick { .. }) => {
+                            "Open their page — note that this one is built for \
+                             automatic unsubscribing, so a browser visit may not \
+                             register"
+                                .to_string()
+                        }
+                        _ => "Open their page and press their unsubscribe button".to_string(),
+                    },
+                    link,
+                    at_ms: now_ms(),
+                },
+                None,
+            ));
+        }
 
         let mut last_problem: Option<Error> = None;
         for (attempt, method) in routes.iter().enumerate() {
@@ -935,7 +1033,12 @@ mod tests {
     }
 
     fn exec() -> Executor {
-        Executor::new(MailtoMode::HandOff, "me@example.com".into()).unwrap()
+        Executor::new(
+            Effort::Automatic,
+            MailtoMode::HandOff,
+            "me@example.com".into(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1205,7 +1308,12 @@ mod tests {
 
     #[tokio::test]
     async fn sending_via_gmail_without_permission_fails_clearly() {
-        let e = Executor::new(MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
+        let e = Executor::new(
+            Effort::Automatic,
+            MailtoMode::SendViaGmail,
+            "me@example.com".into(),
+        )
+        .unwrap();
         let report = e
             .run(
                 &[req(UnsubMethod::Mailto {
@@ -1414,6 +1522,74 @@ mod tests {
     }
 
     // --- tidying up --------------------------------------------------------
+
+    #[tokio::test]
+    async fn blocking_creates_a_filter_that_trashes_future_mail() {
+        // The point of this feature: it does not ask the sender for anything.
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path(
+                "/gmail/v1/users/me/settings/filters",
+            ))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "criteria": { "from": "news@acme.example" },
+                "action": { "addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX"] }
+            })))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_string(r#"{"id":"filter-1"}"#),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        );
+
+        let report = block_senders(
+            &gmail,
+            &["news@acme.example".to_string()],
+            &crate::gmail::Cancel::new(),
+        )
+        .await;
+
+        assert_eq!(report.blocked, 1);
+        assert_eq!(report.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn a_refused_block_is_counted_and_explained() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("nope"))
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        );
+
+        let report = block_senders(
+            &gmail,
+            &["a@b.example".into()],
+            &crate::gmail::Cancel::new(),
+        )
+        .await;
+
+        assert_eq!(report.blocked, 0);
+        assert_eq!(report.failed, 1);
+        assert!(report.problem.is_some(), "a failure must say why");
+    }
 
     #[tokio::test]
     async fn a_trash_request_carries_a_content_length() {

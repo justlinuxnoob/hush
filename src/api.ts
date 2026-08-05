@@ -27,8 +27,11 @@ export const markWelcomeSeen = () => invoke<void>("mark_welcome_seen");
 export const saveCredentials = (clientId: string, clientSecret: string) =>
   invoke<void>("save_credentials", { clientId, clientSecret });
 
-export const connect = (allowSend: boolean, allowDelete: boolean) =>
-  invoke<Status>("connect", { allowSend, allowDelete });
+export const connect = (
+  allowSend: boolean,
+  allowDelete: boolean,
+  allowBlock: boolean
+) => invoke<Status>("connect", { allowSend, allowDelete, allowBlock });
 
 export const resumeSession = () => invoke<Status>("resume_session");
 
@@ -57,12 +60,14 @@ export const planUnsubscribe = (addresses: string[]) =>
 export const runUnsubscribe = (
   addresses: string[],
   unsubscribe: boolean,
-  deleteBacklog: boolean
+  deleteBacklog: boolean,
+  blockFuture: boolean
 ) =>
   invoke<RunReport>("run_unsubscribe", {
     selection: { addresses },
     unsubscribe,
     deleteBacklog,
+    blockFuture,
   });
 
 export const markManualDone = (address: string) =>

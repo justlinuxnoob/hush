@@ -39,6 +39,7 @@ export default function Confirm({
   const [acceptedFlagged, setAcceptedFlagged] = useState(false);
   const [action, setAction] = useState<"unsubscribe" | "bin" | "both">("unsubscribe");
   const [asking, setAsking] = useState(false);
+  const [alsoBlock, setAlsoBlock] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [progress, setProgress] = useState<RunProgress | null>(null);
@@ -69,7 +70,8 @@ export default function Confirm({
         await api.runUnsubscribe(
           addresses,
           action !== "bin",
-          action !== "unsubscribe"
+          action !== "unsubscribe",
+          alsoBlock
         )
       );
     } catch (e) {
@@ -89,7 +91,7 @@ export default function Confirm({
     setProblem(null);
     setAsking(true);
     try {
-      const s = await api.connect(status.can_send, true);
+      const s = await api.connect(status.can_send, true, status.can_block);
       onStatusChange(s);
       // They asked for it, so preselect the thing they asked for.
       if (s.can_delete) setAction("both");
@@ -100,6 +102,21 @@ export default function Confirm({
     }
   }
 
+
+  /** Ask for the filter permission at the moment the guarantee is wanted. */
+  async function askToBlock() {
+    setProblem(null);
+    setAsking(true);
+    try {
+      const s = await api.connect(status.can_send, status.can_delete, true);
+      onStatusChange(s);
+      if (s.can_block) setAlsoBlock(true);
+    } catch (e) {
+      if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
+    } finally {
+      setAsking(false);
+    }
+  }
 
   const blocked = flagged.length > 0 && !acceptedFlagged;
 
@@ -173,6 +190,53 @@ export default function Confirm({
             </div>
           </div>
         )}
+
+        <div className="card stack stack-3">
+          <div className="stack">
+            <strong>Make sure they actually stop</strong>
+            <span className="muted small">
+              Unsubscribing asks a sender to stop, and most do within a few
+              days — but it depends entirely on them. A Gmail filter doesn't
+              ask: anything they send from now on goes straight to your Trash,
+              whether they honour the unsubscribe or not.
+            </span>
+          </div>
+
+          {status.can_block ? (
+            <label
+              className="row"
+              style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
+            >
+              <input
+                type="checkbox"
+                checked={alsoBlock}
+                onChange={(e) => setAlsoBlock(e.target.checked)}
+                style={{ marginTop: "5px", accentColor: "var(--accent)" }}
+              />
+              <span>
+                <strong>
+                  Also block future emails from{" "}
+                  {plural(chosen.length, "this sender", "these senders")}
+                </strong>
+                <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
+                  Creates a Gmail filter you can see and remove at any time under
+                  Settings → Filters in Gmail. Nothing is permanently deleted —
+                  it goes to Trash, same as everything else here.
+                </span>
+              </span>
+            </label>
+          ) : (
+            <div>
+              <button
+                className="btn-secondary"
+                onClick={askToBlock}
+                disabled={asking || busy}
+              >
+                {asking ? "Waiting for your browser…" : "Let Hush do that"}
+              </button>
+            </div>
+          )}
+        </div>
 
         {flagged.length > 0 && (
           <div className="notice notice-caution stack stack-3">

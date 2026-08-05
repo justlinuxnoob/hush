@@ -36,6 +36,10 @@ pub const SCOPE_SEND: &str = "https://www.googleapis.com/auth/gmail.send";
 /// "trash only" permission — so this is requested only when the user has asked
 /// for the tidy-up feature, never by default.
 pub const SCOPE_MODIFY: &str = "https://www.googleapis.com/auth/gmail.modify";
+/// Needed to create a Gmail filter, which is the only way to *guarantee* a
+/// sender stops reaching the inbox. Unsubscribing asks a sender to stop and
+/// depends entirely on them complying; a filter does not ask anyone.
+pub const SCOPE_SETTINGS: &str = "https://www.googleapis.com/auth/gmail.settings.basic";
 
 /// How long we keep the loopback listener open waiting for the user to finish.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(300);

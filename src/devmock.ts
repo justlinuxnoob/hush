@@ -29,6 +29,7 @@ let status: Status = {
   has_credentials: true,
   can_send: false,
   can_delete: false,
+  can_block: false,
   mailto_mode: "hand_off",
   keychain_available: true,
   token_storage: "keychain",
@@ -179,6 +180,7 @@ function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean):
   return {
     outcomes,
     handoffs: [],
+    blocked: null,
     trash: deleteBacklog
       ? {
           trashed: binned,
@@ -206,6 +208,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
       connected: true,
       can_send: status.can_send || Boolean(a.allowSend),
       can_delete: status.can_delete || Boolean(a.allowDelete),
+      can_block: status.can_block || Boolean(a.allowBlock),
     };
     return status;
   },
