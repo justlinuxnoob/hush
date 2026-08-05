@@ -783,7 +783,11 @@ input.mono {
  * A confirmation screen legitimately carries a lot — two questions, a summary,
  * and a warning when one applies — so it can outgrow the window. What must not
  * happen is the button being below the fold, leaving people scrolling to find
- * out how to proceed. It sticks to the bottom instead. */
+ * out how to proceed. It sticks to the bottom instead.
+ *
+ * Every screen with a way forward uses this now: the setup steps, connect,
+ * confirm and results. Whether the content fits is a question about the user's
+ * window size and font settings, which we do not get to know. */
 .decide {
   position: sticky;
   bottom: 0;
@@ -795,6 +799,20 @@ input.mono {
   padding-top: calc(var(--step) * 4);
   padding-bottom: calc(var(--step) * 2);
   margin-top: calc(var(--step) * 2);
+}
+
+/* The mirror of it: a header whose Close button is the way out of a long page,
+ * and so has to stay reachable from the bottom of that page. */
+.escape {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--paper) 0%, transparent),
+    var(--paper) calc(var(--step) * 4)
+  );
+  padding-bottom: calc(var(--step) * 4);
 }
 
 /* --- action bar ---------------------------------------------------------- */

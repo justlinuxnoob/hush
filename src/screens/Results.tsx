@@ -215,14 +215,14 @@ export default function Results({
           </Section>
         )}
 
-          <div className="row">
-            <button className="btn-primary" onClick={onFinish} autoFocus>
-              Back to the list
-            </button>
-            <span className="muted small">
-              Senders usually stop within a few days. Nothing was deleted.
-            </span>
-          </div>
+        <div className="decide row">
+          <button className="btn-primary" onClick={onFinish} autoFocus>
+            Back to the list
+          </button>
+          <span className="muted small">
+            Senders usually stop within a few days. Nothing was deleted.
+          </span>
+        </div>
       </div>
     </div>
   );

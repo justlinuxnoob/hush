@@ -255,7 +255,9 @@ export default function Setup({
 
         {problem && <Notice tone="problem">{problem}</Notice>}
 
-        <div className="row">
+        {/* Sticky: these steps walk through Google's console and run long, and
+            Next should never be below the fold on a small window. */}
+        <div className="decide row">
           <button className="btn-quiet" onClick={back}>
             Back
           </button>

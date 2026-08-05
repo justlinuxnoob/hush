@@ -377,6 +377,22 @@ The lesson is not that either placement is right. It is that "ask for less" and
 "ask fewer times" pull in opposite directions, and the resolution was never
 about placement — it was about explaining what is being asked for.
 
+## Nothing you need is ever below the fold
+
+"i hate how you have to scroll down in this app in random menus." Measured at
+the smallest window the app allows — 720x560 — and the connect screen's own
+Connect button was 74 pixels past the bottom edge. The setup wizard's Next and
+the results screen's way back were the same.
+
+Every screen with a way forward now pins that row to the bottom of the window,
+and Settings pins its Close to the top, so the way out of the longest page in
+the app is reachable from the end of it. Content scrolls; the decision does
+not move.
+
+The general rule: whether a screen fits is a question about someone else's
+window size, font size and display scaling, none of which we get to know. So
+never answer it by looking at your own screen.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

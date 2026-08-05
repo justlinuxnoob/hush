@@ -62,7 +62,7 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
           </p>
         </div>
 
-        <div className="row">
+        <div className="decide row">
           <button className="btn-primary" onClick={onNext} autoFocus>
             Get started
           </button>

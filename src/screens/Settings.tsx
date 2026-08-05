@@ -53,7 +53,7 @@ export default function Settings({
   return (
     <div className="centre narrow">
       <div className="inner stack stack-8">
-        <div className="row">
+        <div className="escape row">
           <h1>Settings</h1>
           <div className="spacer" />
           <button className="btn-quiet" onClick={onClose}>

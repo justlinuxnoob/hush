@@ -122,7 +122,10 @@ export default function Connect({
             </div>
           </div>
         ) : (
-          <div className="stack stack-3">
+          // Sticky, because explaining three permissions properly makes this
+          // screen taller than a small window, and the button you came here to
+          // press should never be somewhere you have to go looking for.
+          <div className="decide stack stack-3">
             <div className="row">
               <button className="btn-quiet" onClick={onBack}>
                 Back to setup
