@@ -63,7 +63,6 @@ pub fn run() {
             commands::sender_messages,
             commands::plan_unsubscribe,
             commands::run_unsubscribe,
-            commands::mark_manual_done,
             commands::outcomes,
             commands::open_link,
             commands::set_mailto_mode,

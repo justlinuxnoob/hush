@@ -19,9 +19,7 @@ use crate::model::{Outcome, ScanDepth, ScanProgress, Sender};
 use crate::scan::Scanner;
 use crate::state::{AppState, Session, SETTING_ACCOUNT, SETTING_GRANTED, SETTING_SEEN_WELCOME};
 use crate::store::Store;
-use crate::unsub::{
-    Executor, Handoff, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest,
-};
+use crate::unsub::{Executor, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest};
 
 /// Emitted repeatedly while a scan runs.
 pub const EVENT_SCAN_PROGRESS: &str = "scan-progress";
@@ -522,7 +520,6 @@ pub async fn run_unsubscribe(
     for outcome in &report.outcomes {
         state.store.record_outcome(&account, outcome)?;
     }
-    open_handoffs(&report.handoffs);
 
     Ok(report)
 }
@@ -598,33 +595,6 @@ async fn tidy_up(
     // away and a second tidy-up does not re-attempt mail already in the bin.
     state.store.forget_messages(account, &report.moved_ids)?;
     Ok(report)
-}
-
-/// Open each prefilled unsubscribe mail in the user's own mail app.
-///
-/// Nothing is sent: the drafts open, and the user presses send — or does not.
-/// Open each prefilled unsubscribe mail in the user's own mail app.
-///
-/// This quietly does nothing on a machine with no mail client configured, which
-/// is most Windows installs — webmail is not a `mailto:` handler. Nothing here
-/// can fix that, so the outcome carries the address and the draft link either
-/// way, and the results screen shows both. Failing to open is not reported as
-/// an error because it is not one: there is simply nothing to open.
-fn open_handoffs(handoffs: &[Handoff]) {
-    for h in handoffs {
-        if let Err(e) = tauri_plugin_opener::open_url(&h.mailto_url, None::<&str>) {
-            log::warn!(
-                "no mail app opened for {} ({e}); the address is in the results",
-                h.address
-            );
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn mark_manual_done(state: State<'_, AppState>, address: String) -> Result<()> {
-    let account = state.account_or_stored().await?;
-    state.store.mark_manual_done(&account, &address)
 }
 
 #[tauri::command]

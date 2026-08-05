@@ -17,15 +17,13 @@ export default function Results({
   report: RunReport;
   onFinish: () => void;
 }) {
-  const [done, setDone] = useState<Set<string>>(new Set());
   const [problem, setProblem] = useState<string | null>(null);
 
   const succeeded = report.outcomes.filter((o) => o.status === "done");
   const sent = report.outcomes.filter((o) => o.status === "sent");
-  const needsYou = report.outcomes.filter((o) => o.status === "needs_you");
+  const couldNotAutomate = report.outcomes.filter((o) => o.status === "could_not_automate");
   const failed = report.outcomes.filter((o) => o.status === "failed");
 
-  const remaining = needsYou.filter((o) => !done.has(o.address)).length;
 
   async function open(o: Outcome) {
     if (!o.link) return;
@@ -36,24 +34,18 @@ export default function Results({
     }
   }
 
-  async function tick(o: Outcome) {
-    setDone((prev) => new Set(prev).add(o.address));
-    try {
-      await api.markManualDone(o.address);
-    } catch (e) {
-      setProblem(errorMessage(e));
-    }
-  }
-
-  const acted = succeeded.length + sent.length + needsYou.length + failed.length;
+  // Whether blocking covered the senders nothing automatic could reach.
+  const blockedOk = (report.blocked?.blocked ?? 0) > 0;
   const binned = report.trash?.trashed ?? 0;
 
   // A bin-only run has no unsubscribe outcomes at all, and "Nothing to report"
   // would be a strange thing to say after moving five hundred emails.
-  const headline =
-    acted === 0 && binned > 0
-      ? `${plural(binned, "old email")} moved to Trash`
-      : summarise(succeeded.length + sent.length, needsYou.length);
+  const headline = summarise({
+    unsubscribed: succeeded.length + sent.length,
+    blocked: report.blocked?.blocked ?? 0,
+    binned,
+    leftForYou: blockedOk ? 0 : couldNotAutomate.length,
+  });
 
   return (
     <div className="centre">
@@ -171,45 +163,33 @@ export default function Results({
           </Section>
         )}
 
-        {needsYou.length > 0 && (
+        {couldNotAutomate.length > 0 && (
           <Section
-            // Deliberately not a restatement of the headline, which already
-            // carries the count — two identical lines read as a rendering fault.
-            title={
-              remaining === 0
-                ? "All finished — nice work"
-                : `Finish these ${remaining} yourself`
+            title={`${plural(couldNotAutomate.length, "sender")} couldn't be unsubscribed automatically`}
+            note={
+              blockedOk
+                ? "They only offer an unsubscribe you'd have to click through yourself, so Hush blocked them instead — their mail goes to Trash from now on and there's nothing for you to do."
+                : "They only offer an unsubscribe you'd have to click through yourself. Blocking would handle these without any work from you — it's the option on the previous screen."
             }
-            note="Some of these only offer a link, which can mean anything, so Hush won't click it blindly. Others need a short email — if no draft opened, your computer has no mail app set up, and you can just send it yourself from the address shown."
           >
-            {needsYou.map((o) => {
-              const isDone = done.has(o.address);
-              const byEmail = o.link?.startsWith("mailto:") ?? false;
-              return (
-                <div key={o.address} className={`result-row${isDone ? " done" : ""}`}>
-                  <div className="stack" style={{ minWidth: 0 }}>
-                    <span className="result-name">{o.display_name}</span>
-                    <span className="muted small">{o.detail}</span>
-                  </div>
-                  <div className="spacer" />
-                  {!isDone && o.link && (
-                    <button className="btn-secondary btn-small" onClick={() => open(o)}>
-                      {byEmail ? "Open the draft" : "Open link"}
-                    </button>
-                  )}
-                  {!isDone && !o.link && (
-                    <span className="muted small">Nothing to open</span>
-                  )}
-                  <button
-                    className={isDone ? "btn-quiet btn-small" : "btn-quiet btn-small"}
-                    onClick={() => tick(o)}
-                    disabled={isDone}
-                  >
-                    {isDone ? "Done" : "Mark as done"}
-                  </button>
+            {couldNotAutomate.map((o) => (
+              <div key={o.address} className="result-row">
+                <div className="stack" style={{ minWidth: 0 }}>
+                  <span className="result-name">{o.display_name}</span>
+                  <span className="muted small">{o.detail}</span>
                 </div>
-              );
-            })}
+                <div className="spacer" />
+                {blockedOk ? (
+                  <span className="badge badge-auto">Blocked instead</span>
+                ) : (
+                  o.link && (
+                    <button className="btn-quiet btn-small" onClick={() => open(o)}>
+                      Their page
+                    </button>
+                  )
+                )}
+              </div>
+            ))}
           </Section>
         )}
 
@@ -266,11 +246,28 @@ function Section({
   );
 }
 
-/** "42 unsubscribed, 8 need one click from you." */
-function summarise(automatic: number, manual: number): string {
-  if (automatic === 0 && manual === 0) return "Nothing to report";
-  if (manual === 0) return `Unsubscribe sent to ${plural(automatic, "sender")}`;
-  if (automatic === 0)
-    return `${plural(manual, "sender")} need one click from you`;
-  return `${automatic} unsubscribed, ${manual} need one click from you`;
+/**
+ * What happened, in the order that matters to the person reading it.
+ *
+ * Every clause is a thing that actually took effect. "Nothing to report" is
+ * reserved for a run where genuinely nothing did — it used to appear after
+ * blocking a sender, which was simply untrue.
+ */
+function summarise(r: {
+  unsubscribed: number;
+  blocked: number;
+  binned: number;
+  leftForYou: number;
+}): string {
+  const parts: string[] = [];
+  if (r.unsubscribed > 0) parts.push(`${plural(r.unsubscribed, "sender")} unsubscribed`);
+  if (r.blocked > 0) parts.push(`${plural(r.blocked, "sender")} blocked`);
+  if (r.binned > 0) parts.push(`${plural(r.binned, "email")} binned`);
+  if (parts.length === 0) {
+    return r.leftForYou > 0
+      ? `${plural(r.leftForYou, "sender")} couldn't be done automatically`
+      : "Nothing to report";
+  }
+  const sentence = parts.join(", ").replace(/, ([^,]*)$/, parts.length > 2 ? ", and $1" : " and $1");
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }

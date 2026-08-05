@@ -352,6 +352,32 @@ trust them to.
 The action button spells out the result rather than naming a mode:
 *"Unsubscribe and block 1 sender, bin 490 emails."*
 
+## The user is never given homework
+
+The instruction was blunt and correct: *"if it can't accept by automatically
+unsubbing just filter it out. I don't want the user to work."*
+
+The app used to produce a to-do list. Senders offering only a link got "open
+their page and press unsubscribe"; senders offering only a `mailto:` had a draft
+opened in the user's mail client for them to send. Both are work, and removing
+work is the entire point of the thing.
+
+Blocking made that list unnecessary. Anything that cannot be completed without
+the user is now reported as un-automatable and blocked instead — a filter needs
+nothing from anybody and does not care what the sender does. The results screen
+says "Blocked instead" rather than handing over a chore.
+
+Gone with it: the `mailto:` draft handoff, `MailtoMode::HandOff` as a
+destination, the `Handoff` type, `mark_manual_done`, and the tick-off list. A
+`mailto:` is attempted only when Google has granted permission to send it, which
+makes it genuinely automatic; otherwise the sender is blocked like any other.
+
+One detail worth keeping: when a link *is* shown — for the curious rather than
+as an instruction — it now prefers the sender's own preferences page over their
+one-click endpoint. Opening a one-click endpoint in a browser is a GET, which
+compliant senders ignore by design, so offering it would be worse than offering
+nothing.
+
 ## Unsubscribing alone was never going to be enough
 
 The complaint that produced this feature: "I don't want unhappy users saying

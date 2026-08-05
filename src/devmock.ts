@@ -152,11 +152,14 @@ function run(
     .map((s) => ({
       address: s.address,
       display_name: s.display_name,
-      status: s.method.kind === "one_click" ? ("sent" as const) : ("needs_you" as const),
+      status:
+        s.method.kind === "one_click"
+          ? ("sent" as const)
+          : ("could_not_automate" as const),
       detail:
         s.method.kind === "one_click"
           ? "Their server accepted it"
-          : "Open their page and press their unsubscribe button",
+          : "This sender only offers an unsubscribe you'd have to click yourself",
       link: s.method.kind === "manual_link" ? s.method.url : null,
       at_ms: Date.now(),
     }));
@@ -184,7 +187,6 @@ function run(
 
   return {
     outcomes,
-    handoffs: [],
     blocked: blockFuture
       ? {
           blocked: selectable(addresses).length,
@@ -243,7 +245,6 @@ const handlers: Record<string, (a: Args) => unknown> = {
     console.info("[demo] would open", a.url);
     return undefined;
   },
-  mark_manual_done: () => undefined,
   set_mailto_mode: (a) => {
     status = { ...status, mailto_mode: a.mode as Status["mailto_mode"] };
     return undefined;

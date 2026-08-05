@@ -1,10 +1,14 @@
 //! Carrying out the unsubscribes the user picked.
 //!
-//! Four rules govern this module:
+//! The rules that govern this module:
 //!
 //! * **A bare link is never fired automatically.** Only RFC 8058 one-click
 //!   endpoints get a POST, because only those have promised that a POST means
-//!   "unsubscribe" and nothing else. Everything else goes to the human.
+//!   "unsubscribe" and nothing else.
+//! * **What cannot be automated is not handed to the user.** A link they must
+//!   open, or a mail they must send, is work this app exists to remove. Those
+//!   senders are reported as un-automatable so the caller can block them
+//!   instead — a filter needs nothing from anyone and always works.
 //! * **Clearing out old mail is opt-in, and only ever moves it to Trash.**
 //!   Unsubscribing is the point; tidying up the backlog is an extra the user
 //!   asks for each time. Gmail keeps trashed mail for 30 days, so a mistake
@@ -110,13 +114,6 @@ pub struct Executor {
     from_address: String,
 }
 
-/// A `mailto:` handoff the interface must open in the user's mail app.
-#[derive(Debug, Clone, Serialize)]
-pub struct Handoff {
-    pub address: String,
-    pub mailto_url: String,
-}
-
 /// Progress while a run is under way.
 ///
 /// A button that says "Working…" for a minute is indistinguishable from a
@@ -138,8 +135,6 @@ pub struct RunProgress {
 #[derive(Debug, Default, Serialize)]
 pub struct RunReport {
     pub outcomes: Vec<Outcome>,
-    /// Draft mails for the interface to open, in order.
-    pub handoffs: Vec<Handoff>,
     /// Present only when the user asked for their old mail to be cleared out.
     pub trash: Option<TrashReport>,
     /// Present only when the user asked for future mail to be blocked.
@@ -315,12 +310,7 @@ impl Executor {
                 break;
             }
             match self.run_one(r, cancel).await {
-                Ok((outcome, handoff)) => {
-                    report.outcomes.push(outcome);
-                    if let Some(h) = handoff {
-                        report.handoffs.push(h);
-                    }
-                }
+                Ok(outcome) => report.outcomes.push(outcome),
                 Err(e) => report.outcomes.push(Outcome {
                     address: r.address.clone(),
                     display_name: r.display_name.clone(),
@@ -347,19 +337,27 @@ impl Executor {
     /// both tried. Only when every automatic route has been exhausted does this
     /// fall back to handing the user a link — and the link is always kept, so
     /// there is a way through even when nothing automatic works.
-    async fn run_one(
-        &self,
-        r: &UnsubRequest,
-        cancel: &crate::gmail::Cancel,
-    ) -> Result<(Outcome, Option<Handoff>)> {
+    async fn run_one(&self, r: &UnsubRequest, cancel: &crate::gmail::Cancel) -> Result<Outcome> {
         let routes: Vec<UnsubMethod> = if r.methods.is_empty() {
             vec![r.method.clone()]
         } else {
             r.methods.clone()
         };
 
+        // Only routes Hush can complete without the user lifting a finger.
+        // Sending a `mailto:` counts only when Google has granted permission to
+        // send; opening a draft for someone to send by hand does not.
+        let automatic: Vec<&UnsubMethod> = routes
+            .iter()
+            .filter(|m| match m {
+                UnsubMethod::OneClick { .. } => true,
+                UnsubMethod::Mailto { .. } => self.mailto_mode == MailtoMode::SendViaGmail,
+                UnsubMethod::ManualLink { .. } | UnsubMethod::None => false,
+            })
+            .collect();
+
         let mut last_problem: Option<Error> = None;
-        for (attempt, method) in routes.iter().enumerate() {
+        for (attempt, method) in automatic.iter().enumerate() {
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
             }
@@ -369,7 +367,7 @@ impl Executor {
                     log::warn!(
                         "route {} of {} failed for {}: {e}",
                         attempt + 1,
-                        routes.len(),
+                        automatic.len(),
                         r.address
                     );
                     last_problem = Some(e);
@@ -377,28 +375,31 @@ impl Executor {
             }
         }
 
-        // Everything failed. Hand back whatever link exists so the user still
-        // has a way to finish it themselves, rather than a dead end.
-        let link = routes.iter().find_map(link_of);
+        // Nothing automatic worked, or nothing automatic was on offer. The
+        // sender is reported as un-automatable rather than turned into a chore:
+        // the caller blocks these, which needs nothing from the user and works
+        // regardless of what the sender does.
         let detail = match &last_problem {
-            Some(e) => format!("{e} You can still open their page and do it by hand."),
-            None => "This sender doesn't offer a way to unsubscribe.".to_string(),
+            Some(e) => format!("Couldn't be unsubscribed automatically — {e}"),
+            None => {
+                "This sender only offers an unsubscribe you'd have to click yourself".to_string()
+            }
         };
-        Ok((
-            Outcome {
-                address: r.address.clone(),
-                display_name: r.display_name.clone(),
-                status: if link.is_some() {
-                    OutcomeStatus::NeedsYou
-                } else {
-                    OutcomeStatus::Failed
-                },
-                detail,
-                link,
-                at_ms: now_ms(),
-            },
-            None,
-        ))
+        Ok(Outcome {
+            address: r.address.clone(),
+            display_name: r.display_name.clone(),
+            status: OutcomeStatus::CouldNotAutomate,
+            detail,
+            // Prefer a page a person could actually open. A one-click endpoint
+            // is an API address that ignores browser visits by design, so
+            // offering it would be worse than offering nothing.
+            link: routes
+                .iter()
+                .find(|m| matches!(m, UnsubMethod::ManualLink { .. }))
+                .and_then(link_of)
+                .or_else(|| routes.iter().find_map(link_of)),
+            at_ms: now_ms(),
+        })
     }
 
     async fn try_one(
@@ -406,7 +407,7 @@ impl Executor {
         r: &UnsubRequest,
         method: &UnsubMethod,
         cancel: &crate::gmail::Cancel,
-    ) -> Result<(Outcome, Option<Handoff>)> {
+    ) -> Result<Outcome> {
         let out = |status: OutcomeStatus, detail: &str, link: Option<String>| Outcome {
             address: r.address.clone(),
             display_name: r.display_name.clone(),
@@ -423,24 +424,18 @@ impl Executor {
                 // acted on it, and there is no protocol by which they could
                 // tell us. So the one thing that actually helps when a sender
                 // ignores it — their own unsubscribe page — stays to hand.
-                Ok(()) => Ok((
-                    out(
-                        OutcomeStatus::Sent,
-                        "Their server accepted it",
-                        Some(url.clone()),
-                    ),
-                    None,
+                Ok(()) => Ok(out(
+                    OutcomeStatus::Sent,
+                    "Their server accepted it",
+                    Some(url.clone()),
                 )),
                 // Delivered and accepted, but the sender answered with a
                 // redirect rather than a plain yes. Reported as sent rather
                 // than done, with the link kept so it can be checked by hand.
-                Err(Error::Redirected) => Ok((
-                    out(
-                        OutcomeStatus::Sent,
-                        "Unsubscribe request sent — the sender didn't confirm it outright",
-                        Some(url.clone()),
-                    ),
-                    None,
+                Err(Error::Redirected) => Ok(out(
+                    OutcomeStatus::Sent,
+                    "Unsubscribe request sent — the sender didn't confirm it outright",
+                    Some(url.clone()),
                 )),
                 Err(e) => Err(e),
             },
@@ -455,28 +450,11 @@ impl Executor {
                     .as_deref()
                     .unwrap_or("Please unsubscribe me from this list.");
                 match self.mailto_mode {
-                    MailtoMode::HandOff => {
-                        // The address goes in the outcome, and the mailto goes
-                        // in the link. On a machine with no mail app configured
-                        // — most Windows installs, since people use webmail —
-                        // opening the draft does nothing at all, silently. Then
-                        // the only thing that helps is knowing who to write to,
-                        // so the user is told regardless of whether it opened.
-                        let mailto = build_mailto_url(address, subject, body);
-                        let what = match subject {
-                            s if !s.is_empty() => {
-                                format!("Send an email to {address} with the subject \"{s}\"")
-                            }
-                            _ => format!("Send a short email to {address}"),
-                        };
-                        Ok((
-                            out(OutcomeStatus::NeedsYou, &what, Some(mailto.clone())),
-                            Some(Handoff {
-                                address: r.address.clone(),
-                                mailto_url: mailto,
-                            }),
-                        ))
-                    }
+                    MailtoMode::HandOff => Err(Error::Other(
+                        "This sender only accepts unsubscribes by email, and Hush \
+                         doesn't have permission to send one."
+                            .into(),
+                    )),
                     MailtoMode::SendViaGmail => {
                         let gmail = self.gmail.as_ref().ok_or_else(|| {
                             Error::Setup(
@@ -487,21 +465,15 @@ impl Executor {
                         })?;
                         let raw = build_rfc5322(&self.from_address, address, subject, body)?;
                         gmail.send_raw(&raw).await?;
-                        Ok((
-                            out(OutcomeStatus::Sent, "Unsubscribe email sent", None),
-                            None,
-                        ))
+                        Ok(out(OutcomeStatus::Sent, "Unsubscribe email sent", None))
                     }
                 }
             }
 
-            UnsubMethod::ManualLink { url } => Ok((
-                out(
-                    OutcomeStatus::NeedsYou,
-                    "Open their page and press their unsubscribe button",
-                    Some(url.clone()),
-                ),
-                None,
+            // Never reached: a bare link is not an automatic route and is
+            // filtered out before this point.
+            UnsubMethod::ManualLink { .. } => Err(Error::Other(
+                "This sender's unsubscribe only works in a browser.".into(),
             )),
 
             UnsubMethod::None => Err(Error::Other(
@@ -890,17 +862,6 @@ fn is_private(ip: &IpAddr) -> bool {
     }
 }
 
-/// Build a `mailto:` URL for handoff to the user's mail app.
-fn build_mailto_url(address: &str, subject: &str, body: &str) -> String {
-    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-    format!(
-        "mailto:{}?subject={}&body={}",
-        utf8_percent_encode(address, NON_ALPHANUMERIC),
-        utf8_percent_encode(subject, NON_ALPHANUMERIC),
-        utf8_percent_encode(body, NON_ALPHANUMERIC),
-    )
-}
-
 /// Build the message sent when the user chose to unsubscribe through Gmail.
 ///
 /// The subject and address come from an email header written by the sender, so
@@ -1037,7 +998,7 @@ mod tests {
                 &crate::gmail::Cancel::new(),
             )
             .await;
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
         assert_eq!(
             report.outcomes[0].link.as_deref(),
             Some("https://127.0.0.1:1/u")
@@ -1076,7 +1037,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_mailto_handoff_produces_a_draft_and_sends_nothing() {
+    async fn a_mailto_without_send_permission_is_not_made_into_a_chore() {
         let report = exec()
             .run(
                 &[req(UnsubMethod::Mailto {
@@ -1087,11 +1048,7 @@ mod tests {
                 &crate::gmail::Cancel::new(),
             )
             .await;
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
-        assert_eq!(report.handoffs.len(), 1);
-        let url = &report.handoffs[0].mailto_url;
-        assert!(url.starts_with("mailto:leave%40acme%2Eexample"));
-        assert!(url.contains("subject=Unsub%20me"));
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
     }
 
     #[test]
@@ -1203,8 +1160,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_broken_first_route_falls_through_to_the_next() {
-        // The sender offers one-click and a mailto. The one-click points at a
-        // private address and will be refused, so the mailto must carry it.
+        // The sender offers one-click and a mailto. Without permission to send
+        // mail, neither is automatic, so the sender is reported as
+        // un-automatable rather than turned into a task.
         let report = exec()
             .run(
                 &[req_many(vec![
@@ -1221,12 +1179,11 @@ mod tests {
             )
             .await;
 
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
-        assert_eq!(report.handoffs.len(), 1, "the mailto route was used");
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
     }
 
     #[tokio::test]
-    async fn when_every_route_fails_the_link_is_still_offered() {
+    async fn when_every_route_fails_the_sender_is_marked_for_blocking() {
         let report = exec()
             .run(
                 &[req_many(vec![
@@ -1241,9 +1198,10 @@ mod tests {
             )
             .await;
 
-        // A dead end would be a failure with nothing to click. Instead the
-        // user gets the sender's own page.
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
+        // Not a chore, and not a dead end: the caller blocks these. The link
+        // is kept only so the results can name the sender's own page if anyone
+        // wants to look.
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
         assert_eq!(
             report.outcomes[0].link.as_deref(),
             Some("https://acme.example/preferences")
@@ -1282,8 +1240,9 @@ mod tests {
                 &crate::gmail::Cancel::new(),
             )
             .await;
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::Failed);
-        assert!(report.outcomes[0].detail.contains("permission"));
+        // Without the send permission a mailto is not automatic, so the sender
+        // is marked for blocking rather than handed to the user.
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
     }
 
     // --- destination vetting ----------------------------------------------
@@ -1319,10 +1278,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_one_click_becomes_something_the_user_can_finish() {
-        // Previously this reported a bare failure. A failure the user can do
-        // nothing about is a dead end, so when a link exists it is offered and
-        // the outcome says there is something left to do.
+    async fn a_failed_one_click_is_reported_as_un_automatable() {
+        // Not as a chore for the user. These get blocked instead, which needs
+        // nothing from them and works whatever the sender does.
         let report = exec()
             .run(
                 &[req(UnsubMethod::OneClick {
@@ -1331,13 +1289,13 @@ mod tests {
                 &crate::gmail::Cancel::new(),
             )
             .await;
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
         assert_eq!(
             report.outcomes[0].link.as_deref(),
             Some("https://192.168.0.1/u")
         );
         assert!(
-            report.outcomes[0].detail.contains("by hand"),
+            report.outcomes[0].detail.contains("automatically"),
             "{}",
             report.outcomes[0].detail
         );

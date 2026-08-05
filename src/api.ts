@@ -74,9 +74,6 @@ export const runUnsubscribe = (
     blockFuture,
   });
 
-export const markManualDone = (address: string) =>
-  invoke<void>("mark_manual_done", { address });
-
 export const outcomes = () => invoke<Outcome[]>("outcomes");
 export const openLink = (url: string) => invoke<void>("open_link", { url });
 export const setMailtoMode = (mode: MailtoMode) =>

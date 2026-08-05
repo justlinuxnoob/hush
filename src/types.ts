@@ -12,7 +12,7 @@ export interface Assessment {
   reasons: string[];
 }
 
-export type OutcomeStatus = "done" | "sent" | "needs_you" | "failed";
+export type OutcomeStatus = "done" | "sent" | "could_not_automate" | "failed";
 
 export interface Outcome {
   address: string;
@@ -115,7 +115,6 @@ export interface BlockReport {
 
 export interface RunReport {
   outcomes: Outcome[];
-  handoffs: { address: string; mailto_url: string }[];
   trash: TrashReport | null;
   blocked: BlockReport | null;
 }

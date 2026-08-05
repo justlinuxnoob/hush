@@ -87,8 +87,11 @@ pub enum OutcomeStatus {
     /// We handed off to the user's mail app or sent a mail; delivery is not
     /// something we can confirm, so this is deliberately not `Done`.
     Sent,
-    /// The user must open a link themselves.
-    NeedsYou,
+    /// Nothing automatic was possible for this sender.
+    ///
+    /// Deliberately not "you go and do it": handing someone a list of links to
+    /// click is the work this app exists to remove. These get blocked instead.
+    CouldNotAutomate,
     Failed,
 }
 

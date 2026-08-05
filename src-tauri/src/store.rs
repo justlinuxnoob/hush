@@ -447,17 +447,6 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Mark a manual link as handled, so the "finish these yourself" list shrinks.
-    pub fn mark_manual_done(&self, account: &str, sender: &str) -> Result<()> {
-        let conn = self.lock()?;
-        conn.execute(
-            "UPDATE outcomes SET status = 'done', detail = 'You marked this as done', at_ms = ?3
-             WHERE account = ?1 AND sender = ?2",
-            params![account, sender, now_ms()],
-        )?;
-        Ok(())
-    }
-
     // --- scan state --------------------------------------------------------
 
     pub fn scan_state(&self, account: &str) -> Result<ScanState> {
@@ -655,7 +644,7 @@ fn status_to_str(s: &OutcomeStatus) -> &'static str {
     match s {
         OutcomeStatus::Done => "done",
         OutcomeStatus::Sent => "sent",
-        OutcomeStatus::NeedsYou => "needs_you",
+        OutcomeStatus::CouldNotAutomate => "could_not_automate",
         OutcomeStatus::Failed => "failed",
     }
 }
@@ -664,7 +653,7 @@ fn status_from_str(s: &str) -> OutcomeStatus {
     match s {
         "done" => OutcomeStatus::Done,
         "sent" => OutcomeStatus::Sent,
-        "needs_you" => OutcomeStatus::NeedsYou,
+        "could_not_automate" => OutcomeStatus::CouldNotAutomate,
         _ => OutcomeStatus::Failed,
     }
 }
@@ -832,7 +821,7 @@ mod tests {
         let o = Outcome {
             address: "a@x.example".into(),
             display_name: "Acme".into(),
-            status: OutcomeStatus::NeedsYou,
+            status: OutcomeStatus::CouldNotAutomate,
             detail: "Open the link to finish".into(),
             link: Some("https://x.example/u".into()),
             at_ms: 42,
@@ -840,9 +829,6 @@ mod tests {
         s.record_outcome(ACC, &o).unwrap();
         assert_eq!(s.outcomes(ACC).unwrap(), vec![o.clone()]);
         assert_eq!(s.senders(ACC).unwrap()[0].outcome.as_ref(), Some(&o));
-
-        s.mark_manual_done(ACC, "a@x.example").unwrap();
-        assert_eq!(s.outcomes(ACC).unwrap()[0].status, OutcomeStatus::Done);
     }
 
     #[test]
