@@ -30,6 +30,7 @@ let status: Status = {
   email: "you@example.com",
   has_credentials: true,
   block_action: "archive",
+  backlog_action: "archive",
   can_send: false,
   can_delete: false,
   can_block: false,
@@ -203,6 +204,7 @@ function run(
       : null,
     trash: deleteBacklog
       ? {
+          action: "archive" as const,
           trashed: binned,
           failed: 0,
           still_present: 0,
