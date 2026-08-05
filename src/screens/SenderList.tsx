@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import * as api from "../api";
-import { Checkbox, Notice, Switch, formatDate, plural } from "../components/ui";
-import { errorMessage, methodLabel, type Sender, type Status } from "../types";
+import { Checkbox, Notice, formatDate, plural } from "../components/ui";
+import { errorMessage, methodLabel, type Sender } from "../types";
 
 type Filter = "all" | "automatic" | "manual" | "flagged";
 
@@ -21,17 +21,13 @@ const FILTERS: { value: Filter; label: string }[] = [
  * no "select all" that touches flagged senders, and no default selection.
  */
 export default function SenderList({
-  status,
   senders,
   onReload,
-  onStatus,
   onContinue,
   onRescan,
 }: {
-  status: Status;
   senders: Sender[];
   onReload: () => Promise<void>;
-  onStatus: (s: Status) => void;
   onContinue: (addresses: string[]) => void;
   onRescan: () => void;
 }) {
@@ -102,15 +98,6 @@ export default function SenderList({
     }
   }
 
-  async function toggleDryRun(on: boolean) {
-    try {
-      await api.setDryRun(on);
-      onStatus(await api.status());
-    } catch (e) {
-      setProblem(errorMessage(e));
-    }
-  }
-
   const flaggedSelected = senders.filter(
     (s) => selected.has(s.address) && s.assessment.caution
   ).length;
@@ -142,13 +129,6 @@ export default function SenderList({
         </div>
 
         <div className="spacer" />
-
-        <Switch
-          on={status.dry_run}
-          onChange={toggleDryRun}
-          label="Dry run"
-          title="With dry run on, Hush shows exactly what it would do and sends nothing."
-        />
       </div>
 
       {problem && (

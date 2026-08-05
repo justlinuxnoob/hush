@@ -112,6 +112,9 @@ pub struct Sender {
     /// Human-readable cadence, e.g. "about 4 a week".
     pub frequency: String,
     pub method: UnsubMethod,
+    /// Every route this sender offers, best first. `method` is the first of
+    /// them; the rest are tried only if the earlier ones fail.
+    pub fallbacks: Vec<UnsubMethod>,
     pub assessment: Assessment,
     pub never_touch: bool,
     /// The most recent outcome for this sender, if we have acted before.

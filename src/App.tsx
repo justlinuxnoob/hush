@@ -156,10 +156,8 @@ export default function App() {
 
       {screen === "list" && (
         <SenderList
-          status={status}
           senders={senders}
           onReload={reloadSenders}
-          onStatus={setStatus}
           onRescan={() => setScreen("scan")}
           onContinue={(addresses) => {
             setChosen(addresses);
@@ -192,6 +190,15 @@ export default function App() {
             setChosen([]);
             setReport(null);
             setScreen("list");
+          }}
+          onDoItForReal={async () => {
+            await api.setDryRun(false);
+            setStatus(await api.status());
+            setReport(null);
+            // Straight back to the confirmation with the same senders picked,
+            // so "do it for real" is one more click rather than a re-run of
+            // the whole selection.
+            setScreen("confirm");
           }}
         />
       )}

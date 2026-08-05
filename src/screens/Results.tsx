@@ -14,10 +14,13 @@ export default function Results({
   status,
   report,
   onFinish,
+  onDoItForReal,
 }: {
   status: Status;
   report: RunReport;
   onFinish: () => void;
+  /** Go straight back to the confirmation, switched to the real thing. */
+  onDoItForReal: () => void;
 }) {
   const [done, setDone] = useState<Set<string>>(new Set());
   const [problem, setProblem] = useState<string | null>(null);
@@ -49,7 +52,7 @@ export default function Results({
   }
 
   const headline = status.dry_run
-    ? "Rehearsal finished"
+    ? "Nothing happened — that was the practice run"
     : summarise(succeeded.length + sent.length, needsYou.length);
 
   return (
@@ -59,8 +62,8 @@ export default function Results({
           <h1>{headline}</h1>
           {status.dry_run && (
             <p className="lede">
-              Nothing was sent. Turn off dry run on the list screen when you'd
-              like Hush to do this for real.
+              No emails were sent, nothing was moved, and nobody was
+              unsubscribed. Below is exactly what Hush would do.
             </p>
           )}
         </div>
@@ -90,12 +93,20 @@ export default function Results({
         )}
 
         {succeeded.length > 0 && (
-          <Section title={`${plural(succeeded.length, "sender")} unsubscribed automatically`}>
+          <Section
+            title={`Unsubscribe sent to ${plural(succeeded.length, "sender")}`}
+            note="Their server accepted it. Most senders stop within a few days — but they don't report back, so if one keeps writing, open their page and do it by hand."
+          >
             {succeeded.map((o) => (
               <div key={o.address} className="result-row">
                 <span className="result-name">{o.display_name}</span>
                 <div className="spacer" />
-                <span className="badge badge-auto">Done</span>
+                <span className="badge badge-auto">Accepted</span>
+                {o.link && (
+                  <button className="btn-quiet btn-small" onClick={() => open(o)}>
+                    Open their page
+                  </button>
+                )}
               </div>
             ))}
           </Section>
@@ -176,14 +187,34 @@ export default function Results({
           </Section>
         )}
 
-        <div className="row">
-          <button className="btn-primary" onClick={onFinish} autoFocus>
-            Back to the list
-          </button>
-          <span className="muted small">
-            Senders usually stop within a few days. Nothing was deleted.
-          </span>
-        </div>
+        {status.dry_run ? (
+          <div className="card stack stack-3">
+            <div className="stack">
+              <strong>Happy with that? Do it for real.</strong>
+              <span className="muted small">
+                Same senders, same choices — except this time it actually
+                happens.
+              </span>
+            </div>
+            <div className="row">
+              <button className="btn-primary" onClick={onDoItForReal} autoFocus>
+                Do it for real
+              </button>
+              <button className="btn-quiet" onClick={onFinish}>
+                Back to the list
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="row">
+            <button className="btn-primary" onClick={onFinish} autoFocus>
+              Back to the list
+            </button>
+            <span className="muted small">
+              Senders usually stop within a few days. Nothing was deleted.
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -219,7 +250,7 @@ function withoutPrefix(detail: string): string {
 /** "42 unsubscribed, 8 need one click from you." */
 function summarise(automatic: number, manual: number): string {
   if (automatic === 0 && manual === 0) return "Nothing to report";
-  if (manual === 0) return `${plural(automatic, "sender")} unsubscribed`;
+  if (manual === 0) return `Unsubscribe sent to ${plural(automatic, "sender")}`;
   if (automatic === 0)
     return `${plural(manual, "sender")} need one click from you`;
   return `${automatic} unsubscribed, ${manual} need one click from you`;

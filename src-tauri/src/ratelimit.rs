@@ -26,13 +26,24 @@ pub const COST_MESSAGES_SEND: f64 = 100.0;
 pub const COST_MESSAGES_TRASH: f64 = 20.0;
 pub const COST_PROFILE: f64 = 1.0;
 
-/// Start well under any documented ceiling. A scan that begins politely and
-/// accelerates is better than one that trips a limit in its first second.
+/// Start well under any documented ceiling and climb. A scan that begins
+/// politely and accelerates is better than one that trips a limit in its first
+/// second — and the climb is what finds the account's real allowance.
 const START_RATE: f64 = 50.0;
-/// Never exceed this. The documented per-user allowance is 6,000 units per
-/// minute (100/s); we stay a little below so a second client on the same
-/// account does not immediately get throttled because of us.
-const MAX_RATE: f64 = 90.0;
+/// The ceiling the adaptive loop is allowed to climb to.
+///
+/// Deliberately above the 100 units/second implied by the documented 6,000
+/// per minute, for two reasons. The per-method costs this limiter prices in are
+/// disputed — Google's own table says a metadata fetch is 20 units, several
+/// other sources say 5 — so a conservative cap on top of a possibly
+/// four-times-too-high cost model made scans needlessly slow. And a ceiling the
+/// loop simply ramps to and sits at defeats the point of having a loop at all:
+/// it never discovers the real limit.
+///
+/// If this is too high, the account says so with a 429, the rate halves, and it
+/// settles where it should. That round trip costs a couple of retries; the
+/// alternative cost a large mailbox hours.
+const MAX_RATE: f64 = 240.0;
 /// Even a heavily throttled account should still creep forward.
 const MIN_RATE: f64 = 4.0;
 /// Units added to the rate after a run of clean responses.

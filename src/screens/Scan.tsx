@@ -30,8 +30,9 @@ const DEPTHS: { value: ScanDepth; title: string; why: string }[] = [
 /**
  * Choosing how far back to look, and then watching it happen.
  *
- * Progress is a real count of real messages. The total is Gmail's own estimate
- * and is labelled as an estimate, because it is often wrong by a few hundred.
+ * Progress is a real count of real messages. The total beside it is Gmail's own
+ * estimate, labelled as one, and dropped entirely once the real count overtakes
+ * it — that estimate can be out by orders of magnitude in either direction.
  */
 export default function Scan({
   status,
@@ -80,6 +81,12 @@ export default function Scan({
   }
 
   const done = progress?.finished ?? false;
+  const scanned = progress?.scanned ?? 0;
+  const estimate = progress?.total_estimate ?? 0;
+  // Gmail's total is an estimate and often well short of the truth. Once the
+  // real count passes it, quoting it would read as broken ("800 of about 501"),
+  // so the count stands alone and the bar goes indeterminate.
+  const estimateStillCredible = estimate > 0 && scanned <= estimate;
 
   if (running || done) {
     return (
@@ -100,20 +107,24 @@ export default function Scan({
             <div className="row">
               {!done && <span className="spinner" aria-hidden="true" />}
               <span className="tabular" style={{ fontSize: "1.375rem", fontWeight: 600 }}>
-                {(progress?.scanned ?? 0).toLocaleString()}
+                {scanned.toLocaleString()}
               </span>
               <span className="muted">
-                {progress?.total_estimate
-                  ? `of about ${progress.total_estimate.toLocaleString()} messages`
-                  : "messages read"}
+                {estimateStillCredible
+                  ? `of about ${estimate.toLocaleString()} messages`
+                  : "messages read so far"}
               </span>
             </div>
 
             {!done && (
-              <Meter
-                value={progress?.scanned ?? 0}
-                max={progress?.total_estimate ?? 0}
-              />
+              <Meter value={scanned} max={estimateStillCredible ? estimate : 0} />
+            )}
+
+            {!done && !estimateStillCredible && estimate > 0 && (
+              <p className="muted small">
+                Google guessed about {estimate.toLocaleString()}, but there's
+                more than that. It keeps going until your mail runs out.
+              </p>
             )}
 
             {done && (

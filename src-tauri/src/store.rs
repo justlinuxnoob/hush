@@ -529,9 +529,12 @@ impl Group {
         if self.subjects.len() < SAMPLE_SUBJECTS && !subject.is_empty() {
             self.subjects.push(subject);
         }
-        // Take the most recent message that actually carried an unsubscribe
-        // header; a sender's newest mail may be a receipt that has none.
-        if self.lu.is_none() && lu.is_some() {
+        // Take the most recent message that actually carried a usable
+        // unsubscribe header. A sender's newest mail may be a receipt with none
+        // at all — or, just as common, one with the field present but empty.
+        // Latching onto an empty one would hide a sender whose older mail is
+        // perfectly unsubscribable.
+        if self.lu.is_none() && lu.as_deref().is_some_and(|v| !v.trim().is_empty()) {
             self.lu = lu;
             self.lup = lup;
         }
@@ -576,6 +579,7 @@ impl Group {
                 self.first_ms
             },
             last_seen_ms: self.last_ms,
+            fallbacks: parsed.methods(),
             method: parsed.method,
             assessment,
             sample_subjects: self.subjects,
@@ -1008,6 +1012,37 @@ mod tests {
             .bulk_message_ids(ACC, "nobody@x.example")
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn an_empty_header_on_recent_mail_does_not_hide_the_sender() {
+        // Seen in the wild: the field is present but blank on the latest
+        // message. Taking that one and stopping would drop a sender who is
+        // plainly unsubscribable from their earlier mail.
+        let s = Store::open_in_memory().unwrap();
+        s.put_messages(
+            ACC,
+            &[
+                msg(
+                    "older",
+                    "news@shop.example",
+                    "Sale",
+                    1,
+                    Some("<https://shop.example/u>"),
+                ),
+                msg("newest", "news@shop.example", "Sale again", 9, Some("   ")),
+            ],
+        )
+        .unwrap();
+
+        let senders = s.senders(ACC).unwrap();
+        assert_eq!(senders.len(), 1, "the sender must still be offered");
+        assert_eq!(
+            senders[0].method,
+            UnsubMethod::ManualLink {
+                url: "https://shop.example/u".into()
+            }
+        );
     }
 
     #[test]

@@ -53,6 +53,12 @@ pub struct UnsubRequest {
     pub address: String,
     pub display_name: String,
     pub method: UnsubMethod,
+    /// Every route this sender offers, best first. Tried in order until one
+    /// works, because a sender who publishes both a one-click endpoint and a
+    /// `mailto:` should not be reported as a failure when only the first is
+    /// broken.
+    #[serde(default)]
+    pub methods: Vec<UnsubMethod>,
 }
 
 /// What the confirmation screen shows, and what a dry run reports.
@@ -190,7 +196,64 @@ impl Executor {
         report
     }
 
+    /// Work down every route the sender offers until one succeeds.
+    ///
+    /// A sender who publishes both a one-click endpoint and a `mailto:` gets
+    /// both tried. Only when every automatic route has been exhausted does this
+    /// fall back to handing the user a link — and the link is always kept, so
+    /// there is a way through even when nothing automatic works.
     async fn run_one(&self, r: &UnsubRequest) -> Result<(Outcome, Option<Handoff>)> {
+        let routes: Vec<UnsubMethod> = if r.methods.is_empty() {
+            vec![r.method.clone()]
+        } else {
+            r.methods.clone()
+        };
+
+        let mut last_problem: Option<Error> = None;
+        for (attempt, method) in routes.iter().enumerate() {
+            match self.try_one(r, method).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    log::warn!(
+                        "route {} of {} failed for {}: {e}",
+                        attempt + 1,
+                        routes.len(),
+                        r.address
+                    );
+                    last_problem = Some(e);
+                }
+            }
+        }
+
+        // Everything failed. Hand back whatever link exists so the user still
+        // has a way to finish it themselves, rather than a dead end.
+        let link = routes.iter().find_map(link_of);
+        let detail = match &last_problem {
+            Some(e) => format!("{e} You can still open their page and do it by hand."),
+            None => "This sender doesn't offer a way to unsubscribe.".to_string(),
+        };
+        Ok((
+            Outcome {
+                address: r.address.clone(),
+                display_name: r.display_name.clone(),
+                status: if link.is_some() {
+                    OutcomeStatus::NeedsYou
+                } else {
+                    OutcomeStatus::Failed
+                },
+                detail,
+                link,
+                at_ms: now_ms(),
+            },
+            None,
+        ))
+    }
+
+    async fn try_one(
+        &self,
+        r: &UnsubRequest,
+        method: &UnsubMethod,
+    ) -> Result<(Outcome, Option<Handoff>)> {
         let out = |status: OutcomeStatus, detail: &str, link: Option<String>| Outcome {
             address: r.address.clone(),
             display_name: r.display_name.clone(),
@@ -212,14 +275,34 @@ impl Executor {
             ));
         }
 
-        match &r.method {
-            UnsubMethod::OneClick { url } => {
-                self.one_click(url).await?;
-                Ok((
-                    out(OutcomeStatus::Done, "Unsubscribed automatically", None),
+        match method {
+            UnsubMethod::OneClick { url } => match self.one_click(url).await {
+                // The link is kept even on success. A 200 means the sender
+                // received and accepted the request; it does not mean they
+                // acted on it, and there is no protocol by which they could
+                // tell us. So the one thing that actually helps when a sender
+                // ignores it — their own unsubscribe page — stays to hand.
+                Ok(()) => Ok((
+                    out(
+                        OutcomeStatus::Done,
+                        "Unsubscribe sent and accepted",
+                        Some(url.clone()),
+                    ),
                     None,
-                ))
-            }
+                )),
+                // Delivered and accepted, but the sender answered with a
+                // redirect rather than a plain yes. Reported as sent rather
+                // than done, with the link kept so it can be checked by hand.
+                Err(Error::Redirected) => Ok((
+                    out(
+                        OutcomeStatus::Sent,
+                        "Unsubscribe request sent — the sender didn't confirm it outright",
+                        Some(url.clone()),
+                    ),
+                    None,
+                )),
+                Err(e) => Err(e),
+            },
 
             UnsubMethod::Mailto {
                 address,
@@ -269,13 +352,8 @@ impl Executor {
                 None,
             )),
 
-            UnsubMethod::None => Ok((
-                out(
-                    OutcomeStatus::Failed,
-                    "This sender doesn't offer a way to unsubscribe",
-                    None,
-                ),
-                None,
+            UnsubMethod::None => Err(Error::Other(
+                "This sender doesn't offer a way to unsubscribe.".into(),
             )),
         }
     }
@@ -307,13 +385,15 @@ impl Executor {
             return Ok(());
         }
         if status.is_redirection() {
-            // A one-click endpoint is not allowed to redirect. Following it
-            // could submit something else entirely, so we hand it back.
-            return Err(Error::Other(
-                "The website asked to send us somewhere else, so we stopped. \
-                 Use the link to finish this one yourself."
-                    .into(),
-            ));
+            // RFC 8058 says a one-click endpoint must not redirect, and plenty
+            // of them do it anyway — usually to a "you have been unsubscribed"
+            // page. The POST was delivered and accepted either way, so calling
+            // it a failure and sending the user off to do it by hand was wrong.
+            //
+            // The redirect is still not followed: where it leads is the
+            // sender's business, and following it would turn a request we
+            // vetted into one we did not.
+            return Err(Error::Redirected);
         }
         Err(Error::Other(format!(
             "The website turned the request down ({}).",
@@ -337,6 +417,58 @@ pub struct TrashReport {
     /// thousand of them would bloat every result payload.
     #[serde(skip)]
     pub moved_ids: Vec<String>,
+    /// How many of the binned messages Gmail still shows outside Trash when
+    /// asked afterwards. Zero means the move is confirmed, not merely reported.
+    /// `None` means the check could not be run.
+    pub still_present: Option<u64>,
+}
+
+/// Ask Gmail whether the mail we binned is actually gone.
+///
+/// Reporting "moved 490 emails" on the strength of 490 HTTP 200s is a claim
+/// about our own requests, not about the mailbox. This checks the mailbox.
+/// `messages.list` excludes Trash, so anything we binned that still comes back
+/// under a `from:` search for that sender did not move.
+///
+/// One list call per sender — five quota units — so the reassurance is close to
+/// free.
+pub async fn verify_binned(
+    gmail: &Arc<GmailClient>,
+    senders: &[String],
+    binned_ids: &[String],
+    cancel: &crate::gmail::Cancel,
+) -> Option<u64> {
+    if binned_ids.is_empty() {
+        return Some(0);
+    }
+    let binned: std::collections::HashSet<&String> = binned_ids.iter().collect();
+    let mut still_there = 0u64;
+
+    for address in senders {
+        // Quoted so an address with a hyphen or plus is taken literally.
+        let query = format!("from:\"{address}\"");
+        let mut page_token: Option<String> = None;
+        loop {
+            let page = match gmail
+                .list_messages(&query, page_token.as_deref(), 500, cancel)
+                .await
+            {
+                Ok(p) => p,
+                // A failed check is reported as "could not confirm" rather than
+                // as a failure to move anything — those are different claims.
+                Err(e) => {
+                    log::warn!("couldn't confirm the bin for {address}: {e}");
+                    return None;
+                }
+            };
+            still_there += page.ids.iter().filter(|id| binned.contains(id)).count() as u64;
+            page_token = page.next_page_token;
+            if page_token.is_none() {
+                break;
+            }
+        }
+    }
+    Some(still_there)
 }
 
 /// How many trash calls are in flight at once. The rate limiter sets the pace;
@@ -367,6 +499,7 @@ pub async fn trash_messages(
             simulated: true,
             // A rehearsal moved nothing, so nothing may be forgotten.
             moved_ids: Vec::new(),
+            still_present: None,
         };
     }
 
@@ -613,7 +746,18 @@ mod tests {
         UnsubRequest {
             address: "news@acme.example".into(),
             display_name: "Acme".into(),
+            methods: vec![method.clone()],
             method,
+        }
+    }
+
+    /// A sender offering several routes, in preference order.
+    fn req_many(methods: Vec<UnsubMethod>) -> UnsubRequest {
+        UnsubRequest {
+            address: "news@acme.example".into(),
+            display_name: "Acme".into(),
+            method: methods[0].clone(),
+            methods,
         }
     }
 
@@ -737,6 +881,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_broken_first_route_falls_through_to_the_next() {
+        // The sender offers one-click and a mailto. The one-click points at a
+        // private address and will be refused, so the mailto must carry it.
+        let report = exec(false)
+            .run(&[req_many(vec![
+                UnsubMethod::OneClick {
+                    url: "https://192.168.0.1/u".into(),
+                },
+                UnsubMethod::Mailto {
+                    address: "leave@acme.example".into(),
+                    subject: None,
+                    body: None,
+                },
+            ])])
+            .await;
+
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
+        assert_eq!(report.handoffs.len(), 1, "the mailto route was used");
+    }
+
+    #[tokio::test]
+    async fn when_every_route_fails_the_link_is_still_offered() {
+        let report = exec(false)
+            .run(&[req_many(vec![
+                UnsubMethod::OneClick {
+                    url: "https://10.0.0.1/u".into(),
+                },
+                UnsubMethod::ManualLink {
+                    url: "https://acme.example/preferences".into(),
+                },
+            ])])
+            .await;
+
+        // A dead end would be a failure with nothing to click. Instead the
+        // user gets the sender's own page.
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
+        assert_eq!(
+            report.outcomes[0].link.as_deref(),
+            Some("https://acme.example/preferences")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_successful_one_click_still_keeps_the_link_to_hand() {
+        // A 200 means the sender accepted the request, not that they acted on
+        // it — and nothing in the protocol can tell us which. So the way to
+        // finish it by hand survives.
+        let report = exec(true)
+            .run(&[req(UnsubMethod::OneClick {
+                url: "https://acme.example/u".into(),
+            })])
+            .await;
+        assert_eq!(
+            report.outcomes[0].link.as_deref(),
+            Some("https://acme.example/u")
+        );
+    }
+
+    #[tokio::test]
     async fn sending_via_gmail_without_permission_fails_clearly() {
         let e = Executor::new(false, MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
         let report = e
@@ -783,16 +986,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_one_click_is_reported_with_the_link_to_finish_by_hand() {
+    async fn a_failed_one_click_becomes_something_the_user_can_finish() {
+        // Previously this reported a bare failure. A failure the user can do
+        // nothing about is a dead end, so when a link exists it is offered and
+        // the outcome says there is something left to do.
         let report = exec(false)
             .run(&[req(UnsubMethod::OneClick {
                 url: "https://192.168.0.1/u".into(),
             })])
             .await;
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::Failed);
+        assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
         assert_eq!(
             report.outcomes[0].link.as_deref(),
             Some("https://192.168.0.1/u")
+        );
+        assert!(
+            report.outcomes[0].detail.contains("by hand"),
+            "{}",
+            report.outcomes[0].detail
         );
     }
 

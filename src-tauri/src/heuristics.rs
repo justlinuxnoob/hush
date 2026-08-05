@@ -266,13 +266,25 @@ const LOCALPART_RULES: &[(&[&str], u32, &str)] = &[
             "login",
             "signin",
             "password",
+        ],
+        75,
+        "Sends from an address used for security or sign-in messages",
+    ),
+    // Deliberately weak, and deliberately separate from the rule above.
+    // `notifications@` and `alerts@` are used by social networks and shops for
+    // exactly the mail people are here to get rid of. Scoring them like a
+    // sign-in code would paint half the list orange, and a warning that appears
+    // everywhere is one nobody reads — which costs more safety than it buys.
+    (
+        &[
             "alerts",
             "alert",
             "notification",
             "notifications",
+            "updates",
         ],
-        75,
-        "Sends from an address used for security or sign-in messages",
+        25,
+        "Sends from an address used for alerts or notifications",
     ),
     (
         &["support", "help", "service", "customercare", "care"],
@@ -553,6 +565,31 @@ mod tests {
         ] {
             assert!(assess(&signals(addr, &none)).caution, "{addr}");
         }
+    }
+
+    #[test]
+    fn a_security_address_is_flagged_but_a_notification_one_is_not() {
+        // Both are real, both carry an unsubscribe header, and they must not be
+        // treated alike: one sends login alerts, the other sends the social
+        // noise people install this app to remove.
+        let none: Vec<String> = vec![];
+        assert!(
+            assess(&signals("security@facebookmail.com", &none)).caution,
+            "security mail must be flagged"
+        );
+        assert!(
+            !assess(&signals("notification@facebookmail.com", &none)).caution,
+            "notification spam must not be, or the warning becomes wallpaper"
+        );
+        assert!(!assess(&signals("alerts@someshop.example", &none)).caution);
+        assert!(!assess(&signals("updates@newsletter.example", &none)).caution);
+    }
+
+    #[test]
+    fn notification_mail_that_really_is_security_still_flags() {
+        // The subject wording carries it even when the mailbox name does not.
+        let s = subj(&["New login from Windows", "We noticed a new sign-in"]);
+        assert!(assess(&signals("notification@facebookmail.com", &s)).caution);
     }
 
     #[test]

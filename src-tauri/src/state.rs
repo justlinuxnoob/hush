@@ -17,6 +17,12 @@ pub const SETTING_CLIENT_SECRET: &str = "client_secret";
 pub const SETTING_DRY_RUN: &str = "dry_run";
 pub const SETTING_MAILTO_MODE: &str = "mailto_mode";
 pub const SETTING_SEEN_WELCOME: &str = "seen_welcome";
+/// The permissions Google actually granted last time.
+///
+/// Kept because the alternative is what shipped in 0.1.2: every relaunch
+/// assumed the narrowest permissions and sent the user back through Google's
+/// consent page to re-grant something they had already granted.
+pub const SETTING_GRANTED: &str = "granted_scopes";
 
 /// Everything about the currently connected account.
 pub struct Session {

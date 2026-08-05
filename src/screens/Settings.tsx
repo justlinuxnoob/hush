@@ -95,9 +95,11 @@ export default function Settings({
           <div className="card stack stack-4">
             <div className="row" style={{ alignItems: "flex-start" }}>
               <div className="stack" style={{ flex: 1 }}>
-                <strong>Dry run</strong>
+                <strong>Start with a practice run</strong>
                 <span className="muted small">
-                  Show exactly what would happen and send nothing. On by default.
+                  When on, Hush offers to show you what would happen before
+                  doing it. You can switch between practice and the real thing
+                  on the confirmation screen each time.
                 </span>
               </div>
               <Switch

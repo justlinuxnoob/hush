@@ -89,6 +89,16 @@ export default function Confirm({
     }
   }
 
+  /** The practice/real choice lives here, not behind a toggle on another screen. */
+  async function setPractice(on: boolean) {
+    try {
+      await api.setDryRun(on);
+      onStatusChange(await api.status());
+    } catch (e) {
+      setProblem(errorMessage(e));
+    }
+  }
+
   const blocked = flagged.length > 0 && !acceptedFlagged;
 
   return (
@@ -97,22 +107,10 @@ export default function Confirm({
         <div className="stack stack-3">
           <h1>Ready when you are</h1>
           <p className="lede">
-            {status.dry_run
-              ? "Dry run is on, so this is a rehearsal. Nothing will be sent."
-              : `Unsubscribing from ${plural(
-                  chosen.length,
-                  "sender"
-                )} who've sent you ${totalMail.toLocaleString()} emails.`}
+            {plural(chosen.length, "sender")}, who between them have sent you{" "}
+            {totalMail.toLocaleString()} emails.
           </p>
         </div>
-
-        {status.dry_run && (
-          <Notice tone="accent">
-            Hush will show you precisely what it would do and send nothing at
-            all. Turn dry run off on the previous screen when you're ready for
-            real.
-          </Notice>
-        )}
 
         <div className="card stack stack-4">
           <Group
@@ -240,6 +238,43 @@ export default function Confirm({
           </div>
         )}
 
+        <div className="card stack stack-3">
+          <h3>How should Hush do this?</h3>
+          <div className="choices">
+            <button
+              className="choice"
+              aria-pressed={status.dry_run}
+              disabled={busy}
+              onClick={() => setPractice(true)}
+            >
+              <span>
+                <strong>Try it first</strong>
+                <span className="why">
+                  Show me exactly what would happen. Nothing is sent, nothing is
+                  moved, nothing changes.
+                </span>
+              </span>
+            </button>
+            <button
+              className="choice"
+              aria-pressed={!status.dry_run}
+              disabled={busy}
+              onClick={() => setPractice(false)}
+            >
+              <span>
+                <strong>Do it for real</strong>
+                <span className="why">
+                  Unsubscribe from {plural(chosen.length, "sender")}
+                  {alsoDelete && binnable > 0
+                    ? `, and move ${binnable.toLocaleString()} old emails to Trash`
+                    : ""}
+                  . This actually happens.
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+
         <div className="stack stack-3">
           <button className="btn-quiet btn-small" onClick={() => setShowDetail((v) => !v)} style={{ alignSelf: "flex-start" }}>
             {showDetail ? "Hide the exact details" : "Show me exactly what gets sent"}
@@ -270,10 +305,10 @@ export default function Confirm({
             {busy
               ? "Working…"
               : status.dry_run
-                ? "Run the rehearsal"
-                : alsoDelete
-                ? `Unsubscribe and bin ${plural(binnable, "email")}`
-                : `Unsubscribe from ${plural(chosen.length, "sender")}`}
+                ? "Show me what would happen"
+                : alsoDelete && binnable > 0
+                  ? `Unsubscribe and bin ${plural(binnable, "email")}`
+                  : `Unsubscribe from ${plural(chosen.length, "sender")}`}
           </button>
         </div>
 

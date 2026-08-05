@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 136 passing (122 unit, 14 against a mocked Gmail API) |
+| Rust tests | 145 passing (131 unit, 14 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -246,7 +246,41 @@ knowing before chasing them again.
 credentials pasted, and nothing in the connect flow has been exercised, because
 that needs Google.
 
-## What real use found straight away
+## What one person actually using it found
+
+Every item below was found by a real first run on Windows, and none of them by
+the mock suite — which clicks every button and drives every screen. Worth
+sitting with, because the pattern is consistent: the mock tests *logic*, and
+every one of these was about **defaults, wording, or what happens when
+something does not answer**.
+
+- **Practice mode was on by default, labelled "Dry run", and silently made the
+  whole app a no-op.** The user unsubscribed, binned mail, checked Gmail, found
+  nothing changed, and reasonably concluded the app was broken. It was doing
+  exactly as told. The toggle sat in a toolbar corner with its explanation in a
+  hover tooltip — in an app whose own contributing guide bans jargon from the
+  interface. Now: no toggle, and the confirmation screen makes you choose
+  between "Try it first — nothing is sent, nothing is moved" and "Do it for
+  real — this actually happens", with the counts spelled out.
+- **Granted permissions were forgotten on every restart.** `resume_session`
+  hardcoded the narrowest scopes, so each launch sent the user back through
+  Google's consent page for something already granted. Now persisted.
+- **A redirect from an unsubscribe endpoint counted as a failure.** RFC 8058
+  says they must not redirect; a great many answer a successful POST with a
+  302 to a "you have been unsubscribed" page. Those were reported as failures.
+- **Only one route per sender was ever attempted.** Senders commonly publish
+  both a one-click endpoint and a `mailto:`; if the first failed, the second was
+  discarded and the sender reported as a failure they had not caused. The
+  executor now works down every route the sender offers.
+- **"Unsubscribed automatically" overclaimed.** A 200 means the sender received
+  and accepted the request. Nothing in the protocol reports whether they acted
+  on it. It now reads "Unsubscribe sent and accepted", and the link is kept even
+  on success so there is a way to finish by hand when a sender ignores it.
+- **`security@` and `notification@` were flagged identically**, which would have
+  turned the safety warning into wallpaper — and wallpaper is what you scroll
+  past on your way to unsubscribing from your bank.
+
+## What earlier testing found
 
 The first person to actually run it hit two things no amount of mock testing
 would have caught, both now fixed in 0.1.1:

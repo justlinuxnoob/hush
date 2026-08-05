@@ -60,6 +60,58 @@ impl UnsubMethod {
     }
 }
 
+impl ParsedUnsub {
+    /// Every way this sender offers to unsubscribe, best first.
+    ///
+    /// Senders commonly publish both a `mailto:` and an HTTPS endpoint. Picking
+    /// the best one and discarding the rest means a sender who offers two
+    /// routes gets reported as a failure when the first one happens to be down
+    /// — so the caller gets the whole list and works down it.
+    pub fn methods(&self) -> Vec<UnsubMethod> {
+        let mut out = Vec::new();
+
+        if self.one_click_advertised {
+            if let Some(UnsubTarget::Https(url)) = self
+                .targets
+                .iter()
+                .find(|t| matches!(t, UnsubTarget::Https(_)))
+            {
+                out.push(UnsubMethod::OneClick { url: url.clone() });
+            }
+        }
+
+        for t in &self.targets {
+            if let UnsubTarget::Mailto {
+                address,
+                subject,
+                body,
+            } = t
+            {
+                out.push(UnsubMethod::Mailto {
+                    address: address.clone(),
+                    subject: subject.clone(),
+                    body: body.clone(),
+                });
+            }
+        }
+
+        // Links come last, and only ever as something for the human to open.
+        for t in &self.targets {
+            match t {
+                UnsubTarget::Https(url) | UnsubTarget::HttpInsecure(url) => {
+                    let manual = UnsubMethod::ManualLink { url: url.clone() };
+                    if !out.contains(&manual) {
+                        out.push(manual);
+                    }
+                }
+                UnsubTarget::Mailto { .. } => {}
+            }
+        }
+
+        out
+    }
+}
+
 /// Everything we learned from one message's unsubscribe headers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedUnsub {
@@ -566,6 +618,52 @@ mod tests {
         assert!(!is_one_click_post("List-Unsubscribe=Yes"));
         assert!(!is_one_click_post("List-Unsubscribe=One-Click; extra=1"));
         assert!(!is_one_click_post("List-Unsubscribe=One-Click=Two"));
+    }
+
+    #[test]
+    fn every_route_a_sender_offers_is_kept_in_order() {
+        // The case that matters: one-click fails, but this sender also
+        // published a mailto that would work. Discarding it would report a
+        // failure the sender never actually caused.
+        let p = parse_unsubscribe(
+            Some("<mailto:leave@acme.example>, <https://acme.example/u>"),
+            Some("List-Unsubscribe=One-Click"),
+        );
+        let methods = p.methods();
+        assert_eq!(methods.len(), 3, "{methods:?}");
+        assert!(matches!(methods[0], UnsubMethod::OneClick { .. }));
+        assert!(matches!(methods[1], UnsubMethod::Mailto { .. }));
+        assert!(matches!(methods[2], UnsubMethod::ManualLink { .. }));
+    }
+
+    #[test]
+    fn the_first_route_matches_the_single_chosen_one() {
+        // methods() must not disagree with method, or the interface would
+        // promise one thing and the executor attempt another.
+        for (lu, post) in [
+            ("<https://a.example/u>", Some("List-Unsubscribe=One-Click")),
+            ("<https://a.example/u>", None),
+            ("<mailto:a@b.example>", None),
+            ("<mailto:a@b.example>, <https://a.example/u>", None),
+            ("junk", None),
+        ] {
+            let p = parse_unsubscribe(Some(lu), post);
+            match p.methods().first() {
+                Some(first) => assert_eq!(*first, p.method, "for {lu:?}"),
+                None => assert_eq!(p.method, UnsubMethod::None, "for {lu:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_link_only_sender_offers_exactly_one_route() {
+        let p = parse_unsubscribe(Some("<https://a.example/u>"), None);
+        assert_eq!(
+            p.methods(),
+            vec![UnsubMethod::ManualLink {
+                url: "https://a.example/u".into()
+            }]
+        );
     }
 
     #[test]

@@ -99,9 +99,12 @@ impl Scanner {
                 Err(e) => return Err(e),
             };
 
-            if progress.total_estimate == 0 {
-                progress.total_estimate = page.total_estimate;
-            }
+            // Gmail's own estimate, and it can be wildly wrong in either
+            // direction — cases of it reporting thousands for a handful of
+            // matches are well known. Keep the largest seen so the bar never
+            // walks backwards; the interface stops quoting it entirely once the
+            // real count overtakes it.
+            progress.total_estimate = progress.total_estimate.max(page.total_estimate);
 
             let wanted: Vec<String> = page
                 .ids

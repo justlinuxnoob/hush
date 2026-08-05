@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::gmail::{Cancel, GmailClient};
 use crate::model::{Outcome, ScanDepth, ScanProgress, Sender};
 use crate::scan::Scanner;
-use crate::state::{AppState, Session, SETTING_ACCOUNT, SETTING_SEEN_WELCOME};
+use crate::state::{AppState, Session, SETTING_ACCOUNT, SETTING_GRANTED, SETTING_SEEN_WELCOME};
 use crate::store::Store;
 use crate::unsub::{
     trash_messages, Executor, Handoff, MailtoMode, PlannedAction, RunReport, TrashReport,
@@ -165,6 +165,9 @@ pub async fn connect(
     // approve some permissions and decline others on the consent screen.
     let can_send = granted.contains("gmail.send");
     let can_delete = granted.contains("gmail.modify");
+    // Remembered so a relaunch does not march the user back through Google's
+    // consent page for permissions they have already given.
+    state.store.set_setting(SETTING_GRANTED, &granted)?;
 
     *state.session.write().await = Some(Session {
         email,
@@ -198,6 +201,11 @@ pub async fn resume_session(state: State<'_, AppState>) -> Result<Status> {
         state.limiter.clone(),
     )?);
 
+    let granted = state
+        .store
+        .get_setting(SETTING_GRANTED)?
+        .unwrap_or_default();
+
     // Prove the stored connection still works before claiming to be connected.
     // In Testing mode these lapse after seven days, and a silent failure later
     // is worse than an honest "reconnect" prompt now.
@@ -208,11 +216,8 @@ pub async fn resume_session(state: State<'_, AppState>) -> Result<Status> {
                 auth,
                 gmail,
                 storage: TokenStorage::Keychain,
-                // A restored session cannot know what was granted without
-                // asking, so it assumes the narrowest. Reconnecting restores
-                // the extras.
-                can_send: false,
-                can_delete: false,
+                can_send: granted.contains("gmail.send"),
+                can_delete: granted.contains("gmail.modify"),
             });
         }
         Err(Error::Unauthorized) => {}
@@ -234,6 +239,7 @@ pub async fn disconnect(state: State<'_, AppState>, erase_local_data: bool) -> R
         state.store.erase(false)?;
     } else {
         state.store.set_setting(SETTING_ACCOUNT, "")?;
+        state.store.set_setting(SETTING_GRANTED, "")?;
     }
     status(state).await
 }
@@ -357,6 +363,7 @@ async fn resolve(state: &AppState, addresses: &[String]) -> Result<Vec<UnsubRequ
             address: s.address.clone(),
             display_name: s.display_name.clone(),
             method: s.method.clone(),
+            methods: s.fallbacks.clone(),
         });
     }
     Ok(out)

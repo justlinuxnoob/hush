@@ -33,6 +33,11 @@ pub enum Error {
     #[error("The connection was cancelled.")]
     Cancelled,
 
+    /// A one-click endpoint accepted the request and answered with a redirect.
+    /// Delivered, but its outcome is the sender's to confirm, not ours.
+    #[error("Sent, though the website didn't confirm it outright.")]
+    Redirected,
+
     #[error("{0}")]
     Other(String),
 }
@@ -70,6 +75,7 @@ impl Error {
             Error::Keychain(_) => "keychain",
             Error::Storage(_) => "storage",
             Error::Cancelled => "cancelled",
+            Error::Redirected => "redirected",
             Error::Other(_) => "other",
         }
     }
