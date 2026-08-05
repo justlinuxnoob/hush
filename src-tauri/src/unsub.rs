@@ -78,25 +78,6 @@ pub enum MailtoMode {
     SendViaGmail,
 }
 
-/// How much Hush should do on the user's behalf.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Effort {
-    /// Use every route the sender offers, falling back to the human only when
-    /// nothing automatic works.
-    #[default]
-    Automatic,
-    /// Send nothing. Produce the list of links and addresses and stop.
-    ///
-    /// Worth knowing before choosing it: opening a one-click endpoint in a
-    /// browser is a GET, and correctly-built endpoints ignore GET on purpose so
-    /// that spam scanners crawling links cannot unsubscribe people. For those
-    /// senders the POST *is* the unsubscribe, and doing it by hand may achieve
-    /// nothing at all. This exists for people who would rather see every step
-    /// themselves anyway.
-    ListOnly,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnsubRequest {
     pub address: String,
@@ -124,7 +105,6 @@ pub struct PlannedAction {
 
 pub struct Executor {
     http: reqwest::Client,
-    pub effort: Effort,
     pub mailto_mode: MailtoMode,
     gmail: Option<Arc<GmailClient>>,
     from_address: String,
@@ -231,7 +211,7 @@ pub async fn block_senders(
 }
 
 impl Executor {
-    pub fn new(effort: Effort, mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
+    pub fn new(mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("hush/", env!("CARGO_PKG_VERSION")))
             .timeout(HTTP_TIMEOUT)
@@ -243,7 +223,6 @@ impl Executor {
             .build()?;
         Ok(Self {
             http,
-            effort,
             mailto_mode,
             gmail: None,
             from_address,
@@ -378,38 +357,6 @@ impl Executor {
         } else {
             r.methods.clone()
         };
-
-        // Asked to send nothing: hand back whatever the sender published and
-        // let the human take it from here.
-        if self.effort == Effort::ListOnly {
-            let link = routes.iter().find_map(link_of);
-            return Ok((
-                Outcome {
-                    address: r.address.clone(),
-                    display_name: r.display_name.clone(),
-                    status: if link.is_some() {
-                        OutcomeStatus::NeedsYou
-                    } else {
-                        OutcomeStatus::Failed
-                    },
-                    detail: match routes.first() {
-                        Some(UnsubMethod::Mailto { address, .. }) => {
-                            format!("Send an email to {address}")
-                        }
-                        Some(UnsubMethod::OneClick { .. }) => {
-                            "Open their page — note that this one is built for \
-                             automatic unsubscribing, so a browser visit may not \
-                             register"
-                                .to_string()
-                        }
-                        _ => "Open their page and press their unsubscribe button".to_string(),
-                    },
-                    link,
-                    at_ms: now_ms(),
-                },
-                None,
-            ));
-        }
 
         let mut last_problem: Option<Error> = None;
         for (attempt, method) in routes.iter().enumerate() {
@@ -1054,12 +1001,7 @@ mod tests {
     }
 
     fn exec() -> Executor {
-        Executor::new(
-            Effort::Automatic,
-            MailtoMode::HandOff,
-            "me@example.com".into(),
-        )
-        .unwrap()
+        Executor::new(MailtoMode::HandOff, "me@example.com".into()).unwrap()
     }
 
     #[test]
@@ -1329,12 +1271,7 @@ mod tests {
 
     #[tokio::test]
     async fn sending_via_gmail_without_permission_fails_clearly() {
-        let e = Executor::new(
-            Effort::Automatic,
-            MailtoMode::SendViaGmail,
-            "me@example.com".into(),
-        )
-        .unwrap();
+        let e = Executor::new(MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
         let report = e
             .run(
                 &[req(UnsubMethod::Mailto {

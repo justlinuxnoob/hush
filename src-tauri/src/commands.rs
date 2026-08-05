@@ -433,7 +433,6 @@ pub async fn plan_unsubscribe(
 ) -> Result<Vec<PlannedAction>> {
     let requests = resolve(&state, &selection.addresses).await?;
     let executor = Executor::new(
-        crate::unsub::Effort::Automatic,
         state.mailto_mode(),
         state.account_or_stored().await.unwrap_or_default(),
     )?;
@@ -457,11 +456,7 @@ pub async fn run_unsubscribe(
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
 
-    let mut executor = Executor::new(
-        crate::unsub::Effort::Automatic,
-        state.mailto_mode(),
-        account.clone(),
-    )?;
+    let mut executor = Executor::new(state.mailto_mode(), account.clone())?;
     if state.mailto_mode() == MailtoMode::SendViaGmail {
         let session = state.session.read().await;
         let session = session.as_ref().ok_or(Error::Unauthorized)?;

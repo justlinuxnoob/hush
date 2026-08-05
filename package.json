@@ -1,7 +1,7 @@
 {
   "name": "hush",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "description": "Quietly unsubscribe from bulk email. No server, no telemetry, your credentials.",
   "license": "MIT",
