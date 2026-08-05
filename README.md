@@ -43,9 +43,17 @@ that would let it. Binned mail and blocked mail both go to Trash, where Gmail
 keeps it for 30 days. Filters are visible and removable under Settings → Filters
 in Gmail.
 
-By default the permission it asks Google for is **read-only**. Binning and
-blocking each need a wider one, and each is requested only at the moment you
-choose it — never up front.
+Google asks you to approve three things on its own consent page, as separate
+tick-boxes you can decline individually:
+
+- **Read your mail** — sender, subject and date only. Required.
+- **Manage your mail** — to move old newsletters to Trash. Cannot delete
+  permanently; that is a different permission and Hush never asks for it.
+- **Change your settings** — to add the filter that blocks a sender for good.
+
+Decline any of them and Hush still runs, with that feature switched off. There
+is also a read-only option on the connect screen if you would rather grant
+nothing until you have seen what the app found.
 
 ## The safety mechanism
 

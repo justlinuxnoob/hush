@@ -352,6 +352,31 @@ trust them to.
 The action button spells out the result rather than naming a mode:
 *"Unsubscribe and block 1 sender, bin 490 emails."*
 
+## Where to ask for permissions, twice reconsidered
+
+First version asked for everything on the connect screen as bare tick-boxes.
+Fair criticism: nobody has seen a single sender at that point, so there is no
+way to judge whether you want mail deleted, and declining meant coming back to
+reconnect.
+
+So it moved to just-in-time — each permission requested at the moment it was
+wanted. Which read well and played badly, because blocking then became the
+*recommended* action, so the ordinary path collected two extra trips through
+the browser in the middle of a task.
+
+It is back on the connect screen, with the thing that was actually missing the
+first time: an explanation of what each permission does and what it cannot do.
+The fact that made this easy was under-weighted originally — **Google's consent
+screen already presents them as separate checkboxes**. Asking for three does not
+impose three; it surfaces three decisions in one place, and the user declines
+whichever they like on Google's own page. The narrow read-only path is still
+offered for anyone who wants it, and the just-in-time prompts still exist for
+whoever takes it.
+
+The lesson is not that either placement is right. It is that "ask for less" and
+"ask fewer times" pull in opposite directions, and the resolution was never
+about placement — it was about explaining what is being asked for.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

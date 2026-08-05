@@ -5,13 +5,18 @@ import { Notice } from "../components/ui";
 import { errorCode, errorMessage, type Status } from "../types";
 
 /**
- * The consent step, and nothing else.
+ * The consent step.
  *
- * It asks for read-only access and stops there. The wider permissions — binning
- * old mail, sending unsubscribe emails — are deliberately *not* offered here:
- * at this point nobody has seen a single sender, so there is no way to make an
- * informed choice, and answering "no" would mean coming back to reconnect.
- * They're asked for later, in the moment they are actually wanted.
+ * This asks for everything Hush can use, in one trip, and explains each one —
+ * because Google's own consent screen presents them as separate checkboxes the
+ * user can decline individually. Asking for three permissions here does not
+ * impose three; it surfaces three choices in the place they are actually made.
+ *
+ * An earlier version asked only for read access and requested the rest later,
+ * at the moment each was wanted. That reads well in principle and is worse in
+ * practice: blocking is the recommended action, so the ordinary path collected
+ * two extra trips through the browser mid-flow. The narrower option is still
+ * here for anyone who wants it.
  */
 export default function Connect({
   status,
@@ -25,11 +30,11 @@ export default function Connect({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  async function go() {
+  async function go(everything: boolean) {
     setProblem(null);
     setBusy(true);
     try {
-      onConnected(await api.connect(false, false, false));
+      onConnected(await api.connect(everything, everything, everything));
     } catch (e) {
       // Giving up is a choice, not a failure, so it earns no error message.
       if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
@@ -59,18 +64,29 @@ export default function Connect({
         </div>
 
         <div className="panel stack stack-3">
-          <h3>What Hush is asking for</h3>
-          <p className="muted">
-            <strong style={{ color: "var(--ink)" }}>
-              Permission to read your mail.
-            </strong>{" "}
-            Hush uses it to fetch the sender, subject and date of each message —
-            never the message itself.
+          <h3>What Google will ask you to approve</h3>
+          <p className="muted small">
+            Three separate tick-boxes on Google's own page. You can decline any
+            of them there and Hush will work without — it just does less.
           </p>
-          <p className="muted">
-            That is all it asks for. It cannot delete, move or send anything with
-            this.
-          </p>
+          <div className="stack stack-2">
+            <span className="muted small">
+              <strong style={{ color: "var(--ink)" }}>Read your mail</strong> —
+              the sender, subject and date of each message. Never the contents.
+              Hush cannot work without this one.
+            </span>
+            <span className="muted small">
+              <strong style={{ color: "var(--ink)" }}>Manage your mail</strong> —
+              so it can move a sender's old newsletters to Trash. It never
+              deletes anything permanently, and cannot: this permission does not
+              allow it.
+            </span>
+            <span className="muted small">
+              <strong style={{ color: "var(--ink)" }}>Change your settings</strong>{" "}
+              — so it can add a Gmail filter that blocks a sender for good. This
+              is the one that makes "they still email me" impossible.
+            </span>
+          </div>
         </div>
 
         {!status.keychain_available && (
@@ -106,13 +122,22 @@ export default function Connect({
             </div>
           </div>
         ) : (
-          <div className="row">
-            <button className="btn-quiet" onClick={onBack}>
-              Back to setup
-            </button>
-            <div className="spacer" />
-            <button className="btn-primary" onClick={go} autoFocus>
-              Connect with Google
+          <div className="stack stack-3">
+            <div className="row">
+              <button className="btn-quiet" onClick={onBack}>
+                Back to setup
+              </button>
+              <div className="spacer" />
+              <button className="btn-primary" onClick={() => go(true)} autoFocus>
+                Connect with Google
+              </button>
+            </div>
+            <button
+              className="btn-quiet btn-small"
+              style={{ alignSelf: "flex-end" }}
+              onClick={() => go(false)}
+            >
+              Or connect with read-only access, and decide the rest later
             </button>
           </div>
         )}

@@ -33,7 +33,8 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
             <li>
               <strong style={{ color: "var(--ink)" }}>Read your emails.</strong>{" "}
               It looks at who sent a message and its subject line. It never asks
-              Google for what's inside.
+              Google for what's inside, and there is no permission it holds that
+              would let it.
             </li>
             <li>
               <strong style={{ color: "var(--ink)" }}>
