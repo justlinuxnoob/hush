@@ -624,6 +624,9 @@ impl Executor {
 /// What happened when clearing out a sender's old mail.
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct TrashReport {
+    /// Whether the mail was archived or trashed, so the results screen states
+    /// it rather than assuming.
+    pub action: BacklogAction,
     pub trashed: u64,
     pub failed: u64,
     /// The messages that actually moved, so the caller can drop them from the
@@ -709,25 +712,67 @@ const TRASH_CONCURRENCY: usize = 8;
 /// mistake here is recoverable by the user without our help. Hush has no code
 /// path that permanently deletes anything, and does not hold a permission that
 /// would let it.
+/// What happens to the mail already sitting in the inbox.
+///
+/// The same choice as blocking, for the same reason: "get this out of my
+/// inbox" and "delete this" are different wishes, and only one of them is
+/// reversible after 30 days.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BacklogAction {
+    /// Out of the inbox, still in the account, tagged `Hush`.
+    #[default]
+    Archive,
+    /// To Trash, which Gmail empties after 30 days.
+    Trash,
+}
+
+impl BacklogAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Archive => "archive",
+            Self::Trash => "trash",
+        }
+    }
+
+    /// Anything unrecognised reads back as the safe one.
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "trash" => Self::Trash,
+            _ => Self::Archive,
+        }
+    }
+}
+
 pub async fn trash_messages(
     gmail: &Arc<GmailClient>,
     ids: &[String],
     cancel: &crate::gmail::Cancel,
 ) -> TrashReport {
-    trash_messages_reporting(gmail, ids, cancel, |_| {}).await
+    trash_messages_reporting(gmail, ids, BacklogAction::Trash, None, cancel, |_| {}).await
 }
 
-/// As [`trash_messages`], but reporting as it goes.
+/// As [`trash_messages`], but reporting as it goes, and able to archive
+/// instead.
+///
+/// `marker` is the `Hush` label, applied to archived mail so it is findable in
+/// Gmail under one name and skipped by later scans. Trashed mail does not need
+/// it — Gmail's search leaves Trash out already.
 pub async fn trash_messages_reporting<F>(
     gmail: &Arc<GmailClient>,
     ids: &[String],
+    action: BacklogAction,
+    marker: Option<&str>,
     cancel: &crate::gmail::Cancel,
     mut on_progress: F,
 ) -> TrashReport
 where
     F: FnMut(&RunProgress),
 {
-    let mut report = TrashReport::default();
+    let mut report = TrashReport {
+        action,
+        ..Default::default()
+    };
     let mut queue = ids.iter().cloned();
     // The id comes back with the result so a success can be recorded against
     // the message it belongs to.
@@ -737,8 +782,15 @@ where
         if let Some(id) = queue.next() {
             let gmail = gmail.clone();
             let cancel = cancel.clone();
+            let marker = marker.map(str::to_string);
             tasks.spawn(async move {
-                let outcome = gmail.trash_message(&id, &cancel).await;
+                let outcome = match action {
+                    BacklogAction::Trash => gmail.trash_message(&id, &cancel).await,
+                    BacklogAction::Archive => {
+                        let add: Vec<&str> = marker.iter().map(String::as_str).collect();
+                        gmail.modify_message(&id, &add, &["INBOX"], &cancel).await
+                    }
+                };
                 (id, outcome)
             });
             true

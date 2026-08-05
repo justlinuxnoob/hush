@@ -48,6 +48,9 @@ export type MailtoMode = "hand_off" | "send_via_gmail";
  * needs a Google permission Hush does not hold.
  */
 export type BlockAction = "archive" | "trash";
+
+/** The same question for the mail already sitting in the inbox. */
+export type BacklogAction = "archive" | "trash";
 export type TokenStorage = "keychain" | "memory";
 export type ScanDepth = "six_months" | "one_year" | "two_years" | "everything";
 
@@ -69,6 +72,7 @@ export interface Status {
   scanning: boolean;
   /** How the user blocked last time. Preselects the choice; never replaces it. */
   block_action: BlockAction;
+  backlog_action: BacklogAction;
 }
 
 export interface ScanProgress {
@@ -102,6 +106,7 @@ export interface PlannedAction {
 }
 
 export interface TrashReport {
+  action: BacklogAction;
   trashed: number;
   failed: number;
   /** How many binned messages Gmail still showed afterwards. null = not checked. */

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
 import * as api from "../api";
-import { Meter, Notice, plural } from "../components/ui";
+import { Meter, Notice, formatCount, plural } from "../components/ui";
 import {
   errorCode,
   errorMessage,
+  type BacklogAction,
   type BlockAction,
   type PlannedAction,
   type RunProgress,
@@ -54,6 +55,13 @@ export default function Confirm({
   // second, explicit interaction that trashing always requires.
   const [blockAction, setBlockAction] = useState<BlockAction>(status.block_action);
   const [acceptedTrash, setAcceptedTrash] = useState(false);
+  // The same question for the backlog. Archiving is the default here too: "get
+  // this out of my inbox" and "delete this" are different wishes, and only one
+  // of them is still reversible in a month.
+  const [backlogAction, setBacklogAction] = useState<BacklogAction>(
+    status.backlog_action
+  );
+  const [acceptedBacklogTrash, setAcceptedBacklogTrash] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -96,7 +104,8 @@ export default function Confirm({
           future !== "block",
           binBacklog,
           future !== "unsubscribe",
-          blockAction
+          blockAction,
+          backlogAction
         )
       );
     } catch (e) {
@@ -147,7 +156,12 @@ export default function Confirm({
   // Choosing Trash is never enough on its own. The tick below it is the second
   // interaction, and until it happens the run button stays put.
   const needsTrashConsent = blocking && blockAction === "trash" && !acceptedTrash;
-  const blocked = (flagged.length > 0 && !acceptedFlagged) || needsTrashConsent;
+  const needsBacklogConsent =
+    binBacklog && backlogAction === "trash" && !acceptedBacklogTrash;
+  const blocked =
+    (flagged.length > 0 && !acceptedFlagged) ||
+    needsTrashConsent ||
+    needsBacklogConsent;
 
   // Moving back to Archive has to clear the consent, or a later switch to Trash
   // would inherit a tick the user gave in a different context.
@@ -156,14 +170,20 @@ export default function Confirm({
     if (next === "archive") setAcceptedTrash(false);
   }
 
+  function chooseBacklogAction(next: BacklogAction) {
+    setBacklogAction(next);
+    if (next === "archive") setAcceptedBacklogTrash(false);
+  }
+
   return (
     <div className="centre">
       <div className="inner stack stack-6">
         <div className="stack stack-3">
           <h1>Ready when you are</h1>
           <p className="lede">
-            {plural(chosen.length, "sender")}, who between them have sent you{" "}
-            {totalMail.toLocaleString()} emails.
+            {plural(chosen.length, "sender")},{" "}
+            {chosen.length === 1 ? "who has" : "who between them have"} sent you{" "}
+            {formatCount(totalMail)} emails.
           </p>
         </div>
 
@@ -233,8 +253,8 @@ export default function Confirm({
           <div className="stack">
             <h3>Stopping future emails</h3>
             <span className="muted small">
-              Unsubscribing asks them to stop. Blocking is a filter in your own
-              Gmail that doesn't ask anyone.
+              Unsubscribing asks them to stop. Blocking is a rule in your own
+              Gmail, so it doesn't depend on them.
             </span>
           </div>
 
@@ -249,8 +269,8 @@ export default function Confirm({
                 <strong>Unsubscribe and block — recommended</strong>
                 <span className="why">
                   {status.can_block
-                    ? "Ask them to stop, and bin anything they send anyway."
-                    : "Needs Google's permission for filters — grant it below."}
+                    ? "Both. Works whether or not they listen."
+                    : "Needs Google's permission — the button below."}
                 </span>
               </span>
             </button>
@@ -262,10 +282,7 @@ export default function Confirm({
             >
               <span>
                 <strong>Unsubscribe only</strong>
-                <span className="why">
-                  Takes you off their list properly — but if they ignore it, the
-                  mail keeps arriving.
-                </span>
+                <span className="why">Proper, but they have to honour it.</span>
               </span>
             </button>
             <button
@@ -278,8 +295,8 @@ export default function Confirm({
                 <strong>Block only</strong>
                 <span className="why">
                   {status.can_block
-                    ? "Say nothing to them; just stop their mail reaching you."
-                    : "Needs Google's permission for filters."}
+                    ? "Say nothing to them. Just stop it arriving."
+                    : "Needs Google's permission."}
                 </span>
               </span>
             </button>
@@ -299,13 +316,10 @@ export default function Confirm({
 
           {blocking && (
             <div className="stack stack-3" style={{ borderTop: "1px solid var(--rule)", paddingTop: "calc(var(--step) * 4)" }}>
-              <div className="stack">
-                <h3 style={{ fontSize: "0.9375rem" }}>Where their blocked mail goes</h3>
-                <span className="muted small">
-                  A block catches everything from that address — including a
-                  receipt, if they send those from the same one.
-                </span>
-              </div>
+              <span className="muted small">
+                <strong style={{ color: "var(--ink)" }}>Where blocked mail goes.</strong>{" "}
+                A block catches everything from that address, receipts included.
+              </span>
 
               <div className="choices">
                 <button
@@ -317,9 +331,7 @@ export default function Confirm({
                   <span>
                     <strong>Out of the inbox — recommended</strong>
                     <span className="why">
-                      Their mail skips the inbox and waits in your account.
-                      Searchable forever, nothing ever deleted. If they do send
-                      you a receipt, it's still there.
+                      Kept in your account, searchable, never deleted.
                     </span>
                   </span>
                 </button>
@@ -333,7 +345,7 @@ export default function Confirm({
                   <span>
                     <strong>Straight to Trash</strong>
                     <span className="why">
-                      Tidier, but Gmail empties Trash after 30 days.
+                      Tidier. Gmail empties Trash after 30 days.
                       {flagged.length > 0 && (
                         <>
                           {" "}
@@ -385,7 +397,7 @@ export default function Confirm({
               )}
 
               <span className="muted small">
-                You can undo any block later, under Blocked senders.
+                Undo any block later under Blocked senders.
               </span>
             </div>
           )}
@@ -396,20 +408,19 @@ export default function Confirm({
             <div className="stack">
               <h3>Their old emails</h3>
               <span className="muted small">
-                Stopping future mail does nothing about the{" "}
-                {binnable.toLocaleString()} already in your inbox.
+                {formatCount(binnable)} of theirs are already in your inbox.
                 {kept > 0 && (
                   <>
                     {" "}
-                    Their {kept.toLocaleString()} other{" "}
-                    {kept === 1 ? "email" : "emails"} — receipts and the like —
-                    are left alone either way.
+                    {formatCount(kept)} more — receipts and the like — are left
+                    alone either way.
                   </>
                 )}
               </span>
             </div>
 
             {status.can_delete ? (
+              <>
               <label
                 className="row"
                 style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
@@ -422,13 +433,74 @@ export default function Confirm({
                 />
                 <span>
                   <strong>
-                    Move their {binnable.toLocaleString()} old newsletters to Trash
+                    Clear their {formatCount(binnable)} old newsletters out of
+                    the inbox
                   </strong>
                   <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-                    Recoverable there for 30 days. Only scanned emails can move.
+                    Only newsletters Hush has scanned. Receipts stay put.
                   </span>
                 </span>
               </label>
+
+              {binBacklog && (
+                <div className="choices">
+                  <button
+                    className="choice"
+                    aria-pressed={backlogAction === "archive"}
+                    disabled={busy}
+                    onClick={() => chooseBacklogAction("archive")}
+                  >
+                    <span>
+                      <strong>Archive them — recommended</strong>
+                      <span className="why">
+                        Out of the inbox, kept in your account under a{" "}
+                        <span className="mono">Hush</span> label. Never deleted.
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    className="choice"
+                    aria-pressed={backlogAction === "trash"}
+                    disabled={busy}
+                    onClick={() => chooseBacklogAction("trash")}
+                  >
+                    <span>
+                      <strong>Move them to Trash</strong>
+                      <span className="why">
+                        Gone from the account. Recoverable for 30 days, then
+                        Gmail deletes them.
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {binBacklog && backlogAction === "trash" && (
+                <Notice tone="caution">
+                  <div className="stack stack-2">
+                    <span>
+                      Gmail <strong>permanently deletes</strong> trashed mail
+                      after 30 days. Archiving does the same job to your inbox
+                      and keeps the mail.
+                    </span>
+                    <label
+                      className="row"
+                      style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={acceptedBacklogTrash}
+                        onChange={(e) => setAcceptedBacklogTrash(e.target.checked)}
+                        style={{ marginTop: "5px", accentColor: "var(--caution)" }}
+                      />
+                      <span style={{ fontWeight: 500 }}>
+                        I understand, move them to Trash
+                      </span>
+                    </label>
+                  </div>
+                </Notice>
+              )}
+              </>
             ) : (
               <div>
                 <button
@@ -487,7 +559,10 @@ export default function Confirm({
                       ? `Unsubscribe and block ${plural(chosen.length, "sender")}`
                       : `Unsubscribe from ${plural(chosen.length, "sender")}`,
                   binBacklog && binnable > 0
-                    ? `bin ${plural(binnable, "email")}`
+                    ? `${backlogAction === "trash" ? "bin" : "archive"} ${plural(
+                        binnable,
+                        "email"
+                      )}`
                     : null,
                 ]
                   .filter(Boolean)
@@ -500,7 +575,7 @@ export default function Confirm({
             <Meter value={progress.done} max={progress.total} />
             <span className="muted small tabular">
               {progress.binning
-                ? `${progress.done.toLocaleString()} of ${progress.total.toLocaleString()} emails moved`
+                ? `${formatCount(progress.done)} of ${formatCount(progress.total)} emails moved`
                 : `${progress.done} of ${progress.total} senders`}
             </span>
           </div>

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import * as api from "../api";
-import { Checkbox, Notice, formatDate, plural } from "../components/ui";
+import { Checkbox, Notice, formatCount, formatDate, plural } from "../components/ui";
 import {
   errorMessage,
   methodLabel,
@@ -22,15 +22,19 @@ const FILTERS: { value: Filter; label: string }[] = [
 /**
  * Senders that need nothing further.
  *
- * Deliberately narrow. A sender whose unsubscribe went through but whose old
- * mail failed to bin still has work outstanding, and hiding it because one half
- * succeeded is how you lose track of the half that did not.
+ * This used to also require `bulk_count === 0`, on the reasoning that a sender
+ * whose unsubscribe worked but whose backlog failed to bin still has work
+ * outstanding. That conflated *failed to bin* with *was never asked to bin* —
+ * and binning is opt-in, off by default. So the ordinary path, unsubscribing
+ * and nothing else, left every sender looking unfinished: still in the main
+ * list, never appearing under "Already done", no sign anything had happened.
+ *
+ * The unsubscribe is the job. Leftover mail is visible in the count on the row,
+ * and a run that fails to bin says so on the results screen.
  */
 function isHandled(s: Sender): boolean {
   if (s.outcome === null) return false;
-  if (s.outcome.status !== "done" && s.outcome.status !== "sent") return false;
-  // Anything still binnable means the tidy-up did not finish its job.
-  return s.bulk_count === 0;
+  return s.outcome.status === "done" || s.outcome.status === "sent";
 }
 
 /**
@@ -60,19 +64,23 @@ export default function SenderList({
   // list holds a handful of samples, this holds the lot.
   const [subjects, setSubjects] = useState<SenderMessage[] | null>(null);
 
-  async function openSubjects(address: string) {
-    if (expanded === address) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(address);
+  // The three row callbacks are stable, so `Row`'s memo comparison holds. A
+  // fresh closure each render would make every row's props "change" and undo
+  // the memo entirely.
+  const openSubjects = useCallback(async (address: string) => {
+    let opening = true;
+    setExpanded((prev) => {
+      opening = prev !== address;
+      return opening ? address : null;
+    });
+    if (!opening) return;
     setSubjects(null);
     try {
       setSubjects(await api.senderMessages(address));
     } catch (e) {
       setProblem(errorMessage(e));
     }
-  }
+  }, []);
 
   // A rescan can remove a sender. Dropping selections that no longer exist
   // keeps the count in the action bar honest.
@@ -112,14 +120,14 @@ export default function SenderList({
 
   const selectable = visible.filter((s) => !s.never_touch);
 
-  function toggle(address: string, on: boolean) {
+  const toggle = useCallback((address: string, on: boolean) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (on) next.add(address);
       else next.delete(address);
       return next;
     });
-  }
+  }, []);
 
   /** Bulk helpers never reach a flagged or protected sender. */
   function selectMany(pick: (s: Sender) => boolean) {
@@ -132,15 +140,18 @@ export default function SenderList({
     });
   }
 
-  async function protectSender(s: Sender) {
-    try {
-      await api.setNeverTouch(s.address, !s.never_touch);
-      toggle(s.address, false);
-      await onReload();
-    } catch (e) {
-      setProblem(errorMessage(e));
-    }
-  }
+  const protectSender = useCallback(
+    async (s: Sender) => {
+      try {
+        await api.setNeverTouch(s.address, !s.never_touch);
+        toggle(s.address, false);
+        await onReload();
+      } catch (e) {
+        setProblem(errorMessage(e));
+      }
+    },
+    [toggle, onReload]
+  );
 
   const handledCount = senders.filter(isHandled).length;
 
@@ -232,114 +243,18 @@ export default function SenderList({
           </div>
         )}
 
-        {visible.map((s) => {
-          const isSelected = selected.has(s.address);
-          const isOpen = expanded === s.address;
-          return (
-            <div
-              key={s.address}
-              className={[
-                "sender",
-                isSelected ? "is-selected" : "",
-                s.assessment.caution ? "is-caution" : "",
-                s.never_touch ? "is-protected" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              <div style={{ paddingTop: "2px" }}>
-                <Checkbox
-                  checked={isSelected}
-                  disabled={s.never_touch}
-                  onChange={(v) => toggle(s.address, v)}
-                  label={`Unsubscribe from ${s.display_name}`}
-                />
-              </div>
-
-              <div className="sender-main">
-                <div className="sender-name">{s.display_name}</div>
-                <div className="sender-address">{s.address}</div>
-                <div className="sender-meta">
-                  <span>{s.frequency}</span>
-                  <span className="sep">·</span>
-                  <span>
-                    {formatDate(s.first_seen_ms)} – {formatDate(s.last_seen_ms)}
-                  </span>
-                  <span className="sep">·</span>
-                  <span
-                    className={
-                      s.method.kind === "one_click" ? "badge badge-auto" : "badge badge-manual"
-                    }
-                  >
-                    {methodLabel(s.method)}
-                  </span>
-                  {s.assessment.caution && (
-                    <span className="badge badge-caution">
-                      <span className="dot" />
-                      Worth a look
-                    </span>
-                  )}
-                  {s.never_touch && <span className="badge badge-neutral">Protected</span>}
-                  {s.outcome && s.outcome.status !== "failed" && (
-                    <span className="badge badge-neutral">Already handled</span>
-                  )}
-                </div>
-
-                {s.assessment.caution && (
-                  <div className="warn-note">
-                    {s.assessment.reasons.join(". ")}. Check you don't need these
-                    before unsubscribing.
-                  </div>
-                )}
-
-                {isOpen && (
-                  <div className="panel stack stack-2" style={{ marginTop: "calc(var(--step)*2)" }}>
-                    <span className="small muted">
-                      {subjects === null
-                        ? "Loading…"
-                        : `Everything from them that Hush has seen (${subjects.length})`}
-                    </span>
-                    {subjects !== null && (
-                      <div className="subject-list stack stack-1">
-                        {subjects.map((m, i) => (
-                          <div key={i} className="subject-row">
-                            <span className="small">{m.subject}</span>
-                            <span className="muted small tabular">
-                              {formatDate(m.date_ms)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div
-                  className="row row-tight sender-actions"
-                  style={{ marginTop: "calc(var(--step) * 1.5)" }}
-                >
-                  {s.message_count > 0 && (
-                    <button
-                      className="btn-quiet btn-small"
-                      onClick={() => openSubjects(s.address)}
-                      aria-expanded={isOpen}
-                    >
-                      {isOpen ? "Hide their emails" : `Show all ${s.message_count} emails`}
-                    </button>
-                  )}
-                  <button className="btn-quiet btn-small" onClick={() => protectSender(s)}>
-                    {s.never_touch ? "Stop protecting" : "Never touch this one"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="sender-count">
-                {s.message_count.toLocaleString()}
-                <small>emails</small>
-              </div>
-            </div>
-          );
-        })}
+        {visible.map((s) => (
+          <Row
+            key={s.address}
+            sender={s}
+            selected={selected.has(s.address)}
+            open={expanded === s.address}
+            subjects={expanded === s.address ? subjects : null}
+            onToggle={toggle}
+            onOpen={openSubjects}
+            onProtect={protectSender}
+          />
+        ))}
       </div>
 
       <div className="actionbar">
@@ -371,3 +286,137 @@ export default function SenderList({
     </div>
   );
 }
+
+/**
+ * One sender, memoised.
+ *
+ * Ticking a checkbox changes one row, but React re-renders whatever it is told
+ * to. Without this the whole list re-rendered on every click — at 157 senders
+ * that measured 559ms per tick, which is what "the app feels laggy" was. The
+ * props are deliberately primitives plus stable callbacks so the comparison
+ * actually short-circuits; passing `selected` as the Set would defeat it,
+ * because a new Set is a new object every time.
+ */
+const Row = memo(function Row({
+  sender: s,
+  selected,
+  open,
+  subjects,
+  onToggle,
+  onOpen,
+  onProtect,
+}: {
+  sender: Sender;
+  selected: boolean;
+  open: boolean;
+  subjects: SenderMessage[] | null;
+  onToggle: (address: string, on: boolean) => void;
+  onOpen: (address: string) => void;
+  onProtect: (s: Sender) => void;
+}) {
+      const isSelected = selected;
+      const isOpen = open;
+      return (
+        <div
+                        className={[
+            "sender",
+            isSelected ? "is-selected" : "",
+            s.assessment.caution ? "is-caution" : "",
+            s.never_touch ? "is-protected" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <div style={{ paddingTop: "2px" }}>
+            <Checkbox
+              checked={isSelected}
+              disabled={s.never_touch}
+              onChange={(v) => onToggle(s.address, v)}
+              label={`Unsubscribe from ${s.display_name}`}
+            />
+          </div>
+
+          <div className="sender-main">
+            <div className="sender-name">{s.display_name}</div>
+            <div className="sender-address">{s.address}</div>
+            <div className="sender-meta">
+              <span>{s.frequency}</span>
+              <span className="sep">·</span>
+              <span>
+                {formatDate(s.first_seen_ms)} – {formatDate(s.last_seen_ms)}
+              </span>
+              <span className="sep">·</span>
+              <span
+                className={
+                  s.method.kind === "one_click" ? "badge badge-auto" : "badge badge-manual"
+                }
+              >
+                {methodLabel(s.method)}
+              </span>
+              {s.assessment.caution && (
+                <span className="badge badge-caution">
+                  <span className="dot" />
+                  Worth a look
+                </span>
+              )}
+              {s.never_touch && <span className="badge badge-neutral">Protected</span>}
+              {s.outcome && s.outcome.status !== "failed" && (
+                <span className="badge badge-neutral">Already handled</span>
+              )}
+            </div>
+
+            {s.assessment.caution && (
+              <div className="warn-note">
+                {s.assessment.reasons.join(". ")}. Check you don't need these
+                before unsubscribing.
+              </div>
+            )}
+
+            {isOpen && (
+              <div className="panel stack stack-2" style={{ marginTop: "calc(var(--step)*2)" }}>
+                <span className="small muted">
+                  {subjects === null
+                    ? "Loading…"
+                    : `Everything from them that Hush has seen (${subjects.length})`}
+                </span>
+                {subjects !== null && (
+                  <div className="subject-list stack stack-1">
+                    {subjects.map((m, i) => (
+                      <div key={i} className="subject-row">
+                        <span className="small">{m.subject}</span>
+                        <span className="muted small tabular">
+                          {formatDate(m.date_ms)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div
+              className="row row-tight sender-actions"
+              style={{ marginTop: "calc(var(--step) * 1.5)" }}
+            >
+              {s.message_count > 0 && (
+                <button
+                  className="btn-quiet btn-small"
+                  onClick={() => onOpen(s.address)}
+                  aria-expanded={isOpen}
+                >
+                  {isOpen ? "Hide their emails" : `Show all ${s.message_count} emails`}
+                </button>
+              )}
+              <button className="btn-quiet btn-small" onClick={() => onProtect(s)}>
+                {s.never_touch ? "Stop protecting" : "Never touch this one"}
+              </button>
+            </div>
+          </div>
+
+          <div className="sender-count">
+            {formatCount(s.message_count)}
+            <small>emails</small>
+          </div>
+        </div>
+      );
+});

@@ -118,7 +118,9 @@ export default function Results({
 
         {report.trash && report.trash.trashed > 0 && (
           <Notice tone="calm">
-            {`${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}
+            {report.trash.action === "trash"
+              ? `${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`
+              : `${plural(report.trash.trashed, "old email")} cleared out of your inbox. They're still in your account, under the Hush label — nothing was deleted.`}
             {report.trash.failed > 0 &&
               ` ${report.trash.failed} couldn't be moved${
                 report.trash.problem ? ` — ${report.trash.problem}` : ""

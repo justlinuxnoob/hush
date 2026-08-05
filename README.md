@@ -34,7 +34,7 @@ deleted.
 |---|---|---|
 | **Unsubscribe** | Sends the sender's own one-click unsubscribe — the identical request Gmail's button makes | No. It's a *request*; they might ignore it or take a fortnight |
 | **Block** | Creates a Gmail filter that keeps their future mail out of your inbox | **Yes.** It's a rule in your account and doesn't ask anyone |
-| **Bin the backlog** | Moves their old newsletters to Trash | Yes, for everything Hush has scanned |
+| **Clear the backlog** | Archives their old newsletters, or bins them if you'd rather | Yes, for everything Hush has scanned |
 
 The recommended default is **unsubscribe and block**: the first takes you off
 their list properly at source, the second means it doesn't matter if they ignore
@@ -183,6 +183,12 @@ like it sends receipts, the Trash option is de-emphasised and says so.
 **There is no delete-forever option and there will not be one.** That needs the
 `https://mail.google.com/` scope. Hush does not request it, so the app is not
 capable of permanently deleting your mail even by mistake.
+
+The same choice applies to old mail. Archiving takes their newsletters out of
+the inbox and files them under the `Hush` label — the inbox is clean and nothing
+is deleted. Trashing is there if you want it, behind the same explicit tick.
+Either way only mail that carried an unsubscribe header is touched, so receipts
+are never in scope.
 
 ## Managing your blocks
 

@@ -19,10 +19,13 @@ use crate::gmail::{BlockAction, Cancel, GmailClient};
 use crate::model::{Outcome, ScanDepth, ScanProgress, Sender};
 use crate::scan::Scanner;
 use crate::state::{
-    AppState, Session, SETTING_ACCOUNT, SETTING_BLOCK_ACTION, SETTING_GRANTED, SETTING_SEEN_WELCOME,
+    AppState, Session, SETTING_ACCOUNT, SETTING_BACKLOG_ACTION, SETTING_BLOCK_ACTION,
+    SETTING_GRANTED, SETTING_SEEN_WELCOME,
 };
 use crate::store::Store;
-use crate::unsub::{Executor, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest};
+use crate::unsub::{
+    BacklogAction, Executor, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest,
+};
 
 /// Emitted repeatedly while a scan runs.
 pub const EVENT_SCAN_PROGRESS: &str = "scan-progress";
@@ -53,6 +56,8 @@ pub struct Status {
     /// How the user blocked last time, so the choice can be preselected.
     /// Defaults to archiving, which is also what an unreadable value means.
     pub block_action: BlockAction,
+    /// The same, for what happens to old mail.
+    pub backlog_action: BacklogAction,
 }
 
 #[tauri::command]
@@ -98,6 +103,12 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
             .get_setting(SETTING_BLOCK_ACTION)?
             .as_deref()
             .map(BlockAction::parse)
+            .unwrap_or_default(),
+        backlog_action: state
+            .store
+            .get_setting(SETTING_BACKLOG_ACTION)?
+            .as_deref()
+            .map(BacklogAction::parse)
             .unwrap_or_default(),
     })
 }
@@ -454,6 +465,11 @@ pub async fn plan_unsubscribe(
 /// `delete_backlog` is a separate, per-run decision. Unsubscribing is the point
 /// of the app; binning old mail is an extra the user asks for each time, never
 /// something that rides along with a previous choice.
+// Eight arguments, and clippy is right that this is a lot. Bundling them into
+// a struct would read better here and worse everywhere else: each one is a
+// separate thing the user said yes to, and the flat list is what makes it
+// obvious at the call site that none of them defaults to something destructive.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn run_unsubscribe(
     app: AppHandle,
@@ -463,6 +479,7 @@ pub async fn run_unsubscribe(
     delete_backlog: bool,
     block_future: bool,
     block_action: Option<BlockAction>,
+    backlog_action: Option<BacklogAction>,
 ) -> Result<RunReport> {
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
@@ -498,7 +515,13 @@ pub async fn run_unsubscribe(
     };
 
     if delete_backlog && !cancel.is_cancelled() {
-        report.trash = Some(tidy_up(&state, &account, &requests, &cancel, &app).await?);
+        // Absent means the interface did not say, and the answer to that is
+        // always the reversible one.
+        let action = backlog_action.unwrap_or_default();
+        state
+            .store
+            .set_setting(SETTING_BACKLOG_ACTION, action.as_str())?;
+        report.trash = Some(tidy_up(&state, &account, &requests, action, &cancel, &app).await?);
     }
 
     if block_future && !cancel.is_cancelled() {
@@ -619,6 +642,7 @@ async fn tidy_up(
     state: &AppState,
     account: &str,
     requests: &[UnsubRequest],
+    action: BacklogAction,
     cancel: &Cancel,
     app: &AppHandle,
 ) -> Result<TrashReport> {
@@ -626,11 +650,22 @@ async fn tidy_up(
     let session = session.as_ref().ok_or(Error::Unauthorized)?;
     if !session.can_delete {
         return Err(Error::Setup(
-            "Hush doesn't have permission to move mail to Trash yet. Reconnect \
+            "Hush doesn't have permission to move your old mail yet. Reconnect \
              your account and allow it."
                 .into(),
         ));
     }
+
+    // Archived mail gets the label so it is findable in Gmail under one name
+    // and skipped by later scans. Best effort: failing to label it is no
+    // reason to leave it sitting in the inbox.
+    let marker = match action {
+        BacklogAction::Archive => crate::filters::ensure_label(&session.gmail, cancel)
+            .await
+            .map_err(|e| log::warn!("couldn't label archived mail: {e}"))
+            .ok(),
+        BacklogAction::Trash => None,
+    };
 
     let mut ids = Vec::new();
     for r in requests {
@@ -651,9 +686,16 @@ async fn tidy_up(
         );
     }
 
-    let mut report = crate::unsub::trash_messages_reporting(&session.gmail, &ids, cancel, |p| {
-        let _ = app.emit(EVENT_RUN_PROGRESS, p);
-    })
+    let mut report = crate::unsub::trash_messages_reporting(
+        &session.gmail,
+        &ids,
+        action,
+        marker.as_deref(),
+        cancel,
+        |p| {
+            let _ = app.emit(EVENT_RUN_PROGRESS, p);
+        },
+    )
     .await;
 
     // Check the mailbox rather than trusting our own HTTP responses. Gmail's

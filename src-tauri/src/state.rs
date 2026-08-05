@@ -32,6 +32,9 @@ pub const SETTING_GRANTED: &str = "granted_scopes";
 /// the app upgrades a user from archiving to trashing on their behalf.
 pub const SETTING_BLOCK_ACTION: &str = "block_action";
 
+/// The same, for what a tidy-up does to old mail — `archive` or `trash`.
+pub const SETTING_BACKLOG_ACTION: &str = "backlog_action";
+
 /// Everything about the currently connected account.
 pub struct Session {
     pub email: String,

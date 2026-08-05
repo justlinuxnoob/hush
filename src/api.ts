@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import type {
+  BacklogAction,
   BlockAction,
   MailtoMode,
   ManagedFilter,
@@ -70,7 +71,8 @@ export const runUnsubscribe = (
   unsubscribe: boolean,
   deleteBacklog: boolean,
   blockFuture: boolean,
-  blockAction: BlockAction
+  blockAction: BlockAction,
+  backlogAction: BacklogAction
 ) =>
   invoke<RunReport>("run_unsubscribe", {
     selection: { addresses },
@@ -78,6 +80,7 @@ export const runUnsubscribe = (
     deleteBacklog,
     blockFuture,
     blockAction,
+    backlogAction,
   });
 
 /**

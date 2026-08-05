@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import * as api from "../api";
-import { Notice, formatDate } from "../components/ui";
+import { Notice, formatCount, formatDate } from "../components/ui";
 import { errorCode, errorMessage, type Status } from "../types";
 
 export default function Settings({
@@ -76,8 +76,8 @@ export default function Settings({
             {status.scan_complete && (
               <span className="muted small">
                 Last looked through your mail on {formatDate(status.last_scan_ms)} —{" "}
-                {status.message_count.toLocaleString()} messages,{" "}
-                {status.sender_count.toLocaleString()} senders you can unsubscribe from.
+                {formatCount(status.message_count)} messages,{" "}
+                {formatCount(status.sender_count)} senders you can unsubscribe from.
               </span>
             )}
             {status.token_storage === "memory" && (

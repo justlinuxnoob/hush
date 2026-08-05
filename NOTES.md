@@ -480,6 +480,62 @@ archives by default, and every block is reversible from inside the app. That is
 a better answer to "let me check before I commit" than a mode that changes what
 the buttons do.
 
+## 559ms to tick a checkbox
+
+"app feels laggy idk why like unoptimized or something." It was, and it was one
+line.
+
+`toLocaleDateString` and `toLocaleString` build a fresh `Intl` formatter on
+every call, and building one costs about 1.5ms in WebKit. Each sender row
+rendered two dates and a count, and ticking any checkbox re-rendered the whole
+list — so at 157 senders that was roughly 470 `Intl` constructions per
+interaction. Measured: **559ms per click.**
+
+Hoisting the two formatters to module scope, plus a `memo` on the row so one
+tick stops re-rendering the other 156, took it to **21–35ms**. A search
+keystroke went to 31ms.
+
+Both fixes are ordinary. The part worth remembering is that the report was
+"feels laggy", which is unfalsifiable, and the fix needed a number. Ten minutes
+with `performance.now()` in the real list turned a vibe into a one-line cause.
+Guessing would have produced a virtualised list — a week of work, aimed at the
+wrong thing.
+
+## A blocked sender kept coming back
+
+Gmail's search excludes Trash by default, so a sender blocked with the Trash
+action vanishes from later scans for free. A sender blocked with the *archive*
+action does not: their mail is still in All Mail. Every rescan picked it up and
+offered them again as fresh work, as though the block had never happened.
+
+Fixed by adding `-label:Hush` to the scan query, which excludes exactly the mail
+our own filters caught. Their older mail, from before the block, is unlabelled
+and still appears — correctly, because that backlog is still sitting there.
+
+Noting the shape, because it is the same one as the block-filter asymmetry above:
+**the archive path was added later and inherited none of the assumptions the
+trash path had been getting away with.** Trash was special-cased by Gmail's own
+defaults, so nobody had to think about it. Archive had no such luck.
+
+## "no option to archive old emails wtf?"
+
+Correct, and inconsistent. Blocking had just gained an archive-or-trash choice
+on the grounds that "get this out of my inbox" and "delete this" are different
+wishes. The backlog — the *other* place mail gets moved — still only offered
+Trash. Same fix, same default, same explicit tick for the destructive option.
+
+Archived backlog gets the `Hush` label, so it is findable in Gmail under one
+name and skipped by later scans, matching what blocking does.
+
+## The list never showed anything as done
+
+`isHandled` required `bulk_count === 0` as well as a successful outcome, so a
+sender whose backlog had not been cleared stayed in the main list. The reasoning
+was that a *failed* bin leaves work outstanding — but it conflated that with
+never having been asked to bin, and binning is opt-in and off by default. So the
+ordinary path, unsubscribing and nothing else, marked nothing as done, ever. The
+list never shrank and "Already done" stayed empty.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

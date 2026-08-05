@@ -35,8 +35,20 @@ const COMMIT_EVERY: usize = 200;
 /// How often the progress count is reported to the interface.
 const REPORT_EVERY: u64 = 25;
 
-/// Mail the user sent, drafts, and chats are not bulk mail from anyone.
-const BASE_QUERY: &str = "-in:sent -in:drafts -in:chats";
+/// Mail the user sent, drafts, and chats are not bulk mail from anyone — and
+/// neither is mail a Hush block already caught.
+///
+/// That last exclusion matters more than it looks. Gmail's search leaves out
+/// Trash by default, so a sender blocked with the Trash action disappears from
+/// scans for free. A sender blocked with the *archive* action does not: their
+/// mail is still in All Mail, so every scan picked it up again and offered them
+/// back as fresh work, as though the block had never happened.
+///
+/// `-label:Hush` excludes exactly the mail our own filters caught, and nothing
+/// else. Their older mail, from before the block, is not labelled and still
+/// shows up — which is right, because that backlog is still sitting there and
+/// the user may still want it gone.
+const BASE_QUERY: &str = "-in:sent -in:drafts -in:chats -label:Hush";
 
 pub struct Scanner {
     gmail: Arc<GmailClient>,

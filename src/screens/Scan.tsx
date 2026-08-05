@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import * as api from "../api";
-import { Meter, Notice, plural } from "../components/ui";
+import { Meter, Notice, formatCount, plural } from "../components/ui";
 import { errorMessage, type ScanDepth, type ScanProgress, type Status } from "../types";
 
 const DEPTHS: { value: ScanDepth; title: string; why: string }[] = [
@@ -109,14 +109,14 @@ export default function Scan({
               {!done && <span className="spinner" aria-hidden="true" />}
               <span className="tabular" style={{ fontSize: "1.375rem", fontWeight: 600 }}>
                 {counting
-                  ? (progress?.found ?? 0).toLocaleString()
-                  : scanned.toLocaleString()}
+                  ? formatCount(progress?.found ?? 0)
+                  : formatCount(scanned)}
               </span>
               <span className="muted">
                 {counting
                   ? "found so far"
                   : total > 0
-                    ? `of ${total.toLocaleString()} messages`
+                    ? `of ${formatCount(total)} messages`
                     : "messages read"}
               </span>
             </div>
