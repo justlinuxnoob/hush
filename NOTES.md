@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 153 passing (137 unit, 16 against a mocked Gmail API) |
+| Rust tests | 154 passing (138 unit, 16 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -306,6 +306,39 @@ confirmation screen and Trash-rather-than-permanent-delete are all unchanged.
 **The lesson is not "do not build dry-run modes."** It is that a default which
 makes an app silently do nothing is indistinguishable from a broken app, and
 the person who chose the default is the last one who will notice.
+
+## Deletion never worked: 411 Length Required
+
+Every trash request this app ever made was rejected by Google, and it took a
+logger, a diagnostic against a real account, and most of a day to find out why.
+
+Gmail's `users.messages.trash` takes no request body. A bodyless `reqwest` POST
+omits the `Content-Length` header entirely rather than sending `0`, and Google
+answers that with **411 Length Required**. Setting an explicit empty body
+produces `Content-Length: 0` and the same request succeeds.
+
+Proven side by side against a live account, same message and token:
+
+| Request | Response |
+|---|---|
+| `POST .../trash` with no body | `411 Length Required` |
+| `POST .../trash` with an explicit empty body | `200 OK`, `"labelIds": ["TRASH"]` |
+
+Three things made this take far longer than it should have:
+
+- **No logger.** The status code was captured and then discarded in favour of a
+  friendly sentence, so the one fact that identified the fault never reached
+  anyone.
+- **411 is not a status anyone expects.** It fell into the catch-all
+  "unexpected response" branch, alongside genuinely unknown failures.
+- **The mocked tests passed.** `wiremock` accepted the bodyless POST that Google
+  rejects, so a full green suite proved nothing about the thing that mattered.
+  The test added with the fix asserts on the header itself, and was checked by
+  removing the fix and watching it fail.
+
+**The lesson**: mocks agree with you. The mock server was more permissive than
+Google in exactly the way that hid a total feature failure, and no amount of
+test coverage against it would ever have found this.
 
 ## There was no logger
 

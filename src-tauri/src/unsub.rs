@@ -1416,6 +1416,44 @@ mod tests {
     // --- tidying up --------------------------------------------------------
 
     #[tokio::test]
+    async fn a_trash_request_carries_a_content_length() {
+        // Gmail answers a POST with no Content-Length header with 411 Length
+        // Required, and a bodyless reqwest POST omits the header rather than
+        // sending zero. Every trash request the app made before this was fixed
+        // failed for that reason and nothing said so.
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path_regex(
+                r"^/gmail/v1/users/me/messages/[^/]+/trash$",
+            ))
+            .and(wiremock::matchers::header("content-length", "0"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("{}"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let gmail = Arc::new(
+            GmailClient::with_base(
+                &server.uri(),
+                Arc::new(NoTokens) as Arc<dyn crate::gmail::TokenSource>,
+                Arc::new(crate::ratelimit::AdaptiveLimiter::with_rate(100_000.0)),
+            )
+            .unwrap(),
+        );
+
+        let report =
+            trash_messages(&gmail, &["m1".to_string()], &crate::gmail::Cancel::new()).await;
+
+        // The mock only matches when Content-Length is present, so a pass here
+        // is proof the header went out.
+        assert_eq!(
+            report.trashed, 1,
+            "the request must carry Content-Length: 0"
+        );
+        assert_eq!(report.failed, 0);
+    }
+
+    #[tokio::test]
     async fn trashing_calls_the_trash_endpoint_once_per_message() {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))

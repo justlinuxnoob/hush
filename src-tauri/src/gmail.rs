@@ -256,7 +256,19 @@ impl GmailClient {
     pub async fn trash_message(&self, id: &str, cancel: &Cancel) -> Result<()> {
         let url = format!("{}/gmail/v1/users/me/messages/{}/trash", self.base, id);
         self.request(crate::ratelimit::COST_MESSAGES_TRASH, cancel, |token| {
-            self.http.post(&url).bearer_auth(token)
+            // The empty body is load-bearing. Gmail's trash endpoint takes no
+            // request body, but rejects a POST that arrives without a
+            // Content-Length header with `411 Length Required` — and a
+            // bodyless reqwest POST omits the header entirely rather than
+            // sending zero. Setting an explicit empty body produces
+            // `Content-Length: 0` and Google accepts it.
+            //
+            // Every trash request this app made before this line failed.
+            self.http
+                .post(&url)
+                .bearer_auth(token)
+                .header(reqwest::header::CONTENT_LENGTH, "0")
+                .body("")
         })
         .await
         .map(|_| ())
