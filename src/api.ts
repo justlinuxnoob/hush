@@ -33,6 +33,8 @@ export const resumeSession = () => invoke<Status>("resume_session");
 
 export const cancelConnect = () => invoke<void>("cancel_connect");
 
+export const cancelRun = () => invoke<void>("cancel_run");
+
 export const disconnect = (eraseLocalData: boolean) =>
   invoke<Status>("disconnect", { eraseLocalData });
 

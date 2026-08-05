@@ -44,6 +44,9 @@ pub struct AppState {
     /// Set while waiting for Google's consent redirect, so the user can give up
     /// rather than watching a dead window for five minutes.
     pub connect_cancel: RwLock<Option<Cancel>>,
+    /// Set while unsubscribes and binning are running, so a run of fifty
+    /// senders is not a commitment the user cannot back out of.
+    pub run_cancel: RwLock<Option<Cancel>>,
 }
 
 impl AppState {
@@ -54,6 +57,7 @@ impl AppState {
             limiter: Arc::new(AdaptiveLimiter::new()),
             scan_cancel: RwLock::new(None),
             connect_cancel: RwLock::new(None),
+            run_cancel: RwLock::new(None),
         }
     }
 

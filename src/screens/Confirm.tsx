@@ -297,9 +297,15 @@ export default function Confirm({
         {problem && <Notice tone="problem">{problem}</Notice>}
 
         <div className="row">
-          <button className="btn-quiet" onClick={onBack} disabled={busy}>
-            Back
-          </button>
+          {busy ? (
+            <button className="btn-secondary" onClick={() => api.cancelRun()}>
+              Stop
+            </button>
+          ) : (
+            <button className="btn-quiet" onClick={onBack}>
+              Back
+            </button>
+          )}
           <div className="spacer" />
           <button className="btn-primary" onClick={go} disabled={busy || blocked}>
             {busy

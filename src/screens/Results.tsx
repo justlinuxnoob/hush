@@ -77,6 +77,11 @@ export default function Results({
               : `${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}
             {report.trash.failed > 0 &&
               ` ${report.trash.failed} couldn't be moved and were left alone.`}
+            {report.trash.still_present === 0 &&
+              " Checked afterwards — they're gone from your inbox."}
+            {report.trash.still_present !== null &&
+              report.trash.still_present > 0 &&
+              ` Checked afterwards, and ${report.trash.still_present} are somehow still there.`}
           </Notice>
         )}
 

@@ -80,6 +80,8 @@ export interface PlannedAction {
 export interface TrashReport {
   trashed: number;
   failed: number;
+  /** How many binned messages Gmail still showed afterwards. null = not checked. */
+  still_present: number | null;
   /** True when it was a rehearsal and nothing actually moved. */
   simulated: boolean;
 }

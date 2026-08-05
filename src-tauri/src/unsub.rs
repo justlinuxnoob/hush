@@ -29,6 +29,30 @@ use crate::parse::UnsubMethod;
 /// holding a queue of fifty senders behind.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// How often a request in flight checks whether the user has pressed Stop.
+const CANCEL_POLL: Duration = Duration::from_millis(250);
+
+/// Resolve `work`, unless the user gives up first.
+///
+/// Without this, pressing Stop during a run would be noticed only between
+/// senders — and with a twenty-second timeout each, fifty senders is sixteen
+/// minutes of a button that does nothing.
+async fn until_cancelled<F, T>(work: F, cancel: &crate::gmail::Cancel) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    tokio::pin!(work);
+    loop {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        match tokio::time::timeout(CANCEL_POLL, &mut work).await {
+            Ok(result) => return result,
+            Err(_) => continue,
+        }
+    }
+}
+
 /// The exact body RFC 8058 specifies.
 const ONE_CLICK_BODY: &str = "List-Unsubscribe=One-Click";
 
@@ -173,10 +197,15 @@ impl Executor {
     /// Sequential on purpose: fifty simultaneous POSTs to fifty marketing
     /// platforms looks like an attack, and the whole run is over in seconds
     /// either way.
-    pub async fn run(&self, requests: &[UnsubRequest]) -> RunReport {
+    pub async fn run(&self, requests: &[UnsubRequest], cancel: &crate::gmail::Cancel) -> RunReport {
         let mut report = RunReport::default();
         for r in requests {
-            match self.run_one(r).await {
+            if cancel.is_cancelled() {
+                // Everything already done stays done and is reported; the rest
+                // simply never happened.
+                break;
+            }
+            match self.run_one(r, cancel).await {
                 Ok((outcome, handoff)) => {
                     report.outcomes.push(outcome);
                     if let Some(h) = handoff {
@@ -202,7 +231,11 @@ impl Executor {
     /// both tried. Only when every automatic route has been exhausted does this
     /// fall back to handing the user a link — and the link is always kept, so
     /// there is a way through even when nothing automatic works.
-    async fn run_one(&self, r: &UnsubRequest) -> Result<(Outcome, Option<Handoff>)> {
+    async fn run_one(
+        &self,
+        r: &UnsubRequest,
+        cancel: &crate::gmail::Cancel,
+    ) -> Result<(Outcome, Option<Handoff>)> {
         let routes: Vec<UnsubMethod> = if r.methods.is_empty() {
             vec![r.method.clone()]
         } else {
@@ -211,7 +244,10 @@ impl Executor {
 
         let mut last_problem: Option<Error> = None;
         for (attempt, method) in routes.iter().enumerate() {
-            match self.try_one(r, method).await {
+            if cancel.is_cancelled() {
+                return Err(Error::Cancelled);
+            }
+            match self.try_one(r, method, cancel).await {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     log::warn!(
@@ -253,6 +289,7 @@ impl Executor {
         &self,
         r: &UnsubRequest,
         method: &UnsubMethod,
+        cancel: &crate::gmail::Cancel,
     ) -> Result<(Outcome, Option<Handoff>)> {
         let out = |status: OutcomeStatus, detail: &str, link: Option<String>| Outcome {
             address: r.address.clone(),
@@ -276,7 +313,7 @@ impl Executor {
         }
 
         match method {
-            UnsubMethod::OneClick { url } => match self.one_click(url).await {
+            UnsubMethod::OneClick { url } => match self.one_click(url, cancel).await {
                 // The link is kept even on success. A 200 means the sender
                 // received and accepted the request; it does not mean they
                 // acted on it, and there is no protocol by which they could
@@ -359,10 +396,10 @@ impl Executor {
     }
 
     /// The RFC 8058 one-click POST.
-    async fn one_click(&self, url: &str) -> Result<()> {
+    async fn one_click(&self, url: &str, cancel: &crate::gmail::Cancel) -> Result<()> {
         vet_destination(url).await?;
 
-        let response = self
+        let request = self
             .http
             .post(url)
             .header(
@@ -370,15 +407,21 @@ impl Executor {
                 "application/x-www-form-urlencoded",
             )
             .body(ONE_CLICK_BODY)
-            .send()
-            .await
-            .map_err(|e| {
-                Error::Network(if e.is_timeout() {
-                    "The website didn't answer in time".into()
-                } else {
-                    "Couldn't reach the website".into()
+            .send();
+
+        let response = until_cancelled(
+            async {
+                request.await.map_err(|e| {
+                    Error::Network(if e.is_timeout() {
+                        "The website didn't answer in time".into()
+                    } else {
+                        "Couldn't reach the website".into()
+                    })
                 })
-            })?;
+            },
+            cancel,
+        )
+        .await?;
 
         let status = response.status();
         if status.is_success() {
@@ -395,10 +438,24 @@ impl Executor {
             // vetted into one we did not.
             return Err(Error::Redirected);
         }
-        Err(Error::Other(format!(
-            "The website turned the request down ({}).",
-            status.as_u16()
-        )))
+        // 405 is the commonest failure in the wild by a distance: the endpoint
+        // is published in the header but only wired up for GET, so it works in
+        // a browser and refuses a POST. 401/403 is the same story with a login
+        // in front of it. Both are finishable by hand, so say so plainly rather
+        // than quoting a status code at someone.
+        if status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+            || status == reqwest::StatusCode::UNAUTHORIZED
+            || status == reqwest::StatusCode::FORBIDDEN
+            || status == reqwest::StatusCode::NOT_FOUND
+        {
+            return Err(Error::Other(
+                "This sender's unsubscribe only works in a browser.".into(),
+            ));
+        }
+
+        Err(Error::Other(
+            "The sender's website turned the request down.".into(),
+        ))
     }
 }
 
@@ -783,7 +840,9 @@ mod tests {
                 url: "https://acme.example/u".into(),
             }),
         ];
-        let report = exec(true).run(&requests).await;
+        let report = exec(true)
+            .run(&requests, &crate::gmail::Cancel::new())
+            .await;
 
         assert_eq!(report.outcomes.len(), 3);
         for o in &report.outcomes {
@@ -821,10 +880,13 @@ mod tests {
     async fn a_manual_link_never_fires_a_request_even_outside_dry_run() {
         // This is the promise: link-only senders are listed, not actioned.
         let report = exec(false)
-            .run(&[req(UnsubMethod::ManualLink {
-                // Would be refused by vetting if it were ever sent.
-                url: "https://127.0.0.1:1/u".into(),
-            })])
+            .run(
+                &[req(UnsubMethod::ManualLink {
+                    // Would be refused by vetting if it were ever sent.
+                    url: "https://127.0.0.1:1/u".into(),
+                })],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
         assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
         assert_eq!(
@@ -867,11 +929,14 @@ mod tests {
     #[tokio::test]
     async fn a_mailto_handoff_produces_a_draft_and_sends_nothing() {
         let report = exec(false)
-            .run(&[req(UnsubMethod::Mailto {
-                address: "leave@acme.example".into(),
-                subject: Some("Unsub me".into()),
-                body: None,
-            })])
+            .run(
+                &[req(UnsubMethod::Mailto {
+                    address: "leave@acme.example".into(),
+                    subject: Some("Unsub me".into()),
+                    body: None,
+                })],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
         assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
         assert_eq!(report.handoffs.len(), 1);
@@ -881,20 +946,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_run_can_be_stopped_partway_and_keeps_what_it_did() {
+        // The gap this closes: fifty senders, twenty seconds of timeout each,
+        // and a button that did nothing. Whatever is already done stays done.
+        let cancel = crate::gmail::Cancel::new();
+        let requests: Vec<UnsubRequest> = (0..20)
+            .map(|_| {
+                req(UnsubMethod::ManualLink {
+                    url: "https://acme.example/u".into(),
+                })
+            })
+            .collect();
+
+        cancel.cancel();
+        let started = std::time::Instant::now();
+        let report = exec(false).run(&requests, &cancel).await;
+
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "stopping took {:?}",
+            started.elapsed()
+        );
+        assert!(
+            report.outcomes.len() < requests.len(),
+            "it should not have worked through all of them"
+        );
+    }
+
+    #[tokio::test]
+    async fn stopping_mid_flight_is_noticed_within_a_moment() {
+        // A request already in flight must not hold the whole run hostage for
+        // the full twenty-second timeout.
+        let cancel = crate::gmail::Cancel::new();
+        let trigger = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            trigger.cancel();
+        });
+
+        // 203.0.113.0/24 is reserved for documentation and never answers, so
+        // this request hangs until either the timeout or the cancel wins.
+        let started = std::time::Instant::now();
+        let report = exec(false)
+            .run(
+                &[req(UnsubMethod::OneClick {
+                    url: "https://203.0.113.1/u".into(),
+                })],
+                &cancel,
+            )
+            .await;
+
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "cancel should beat the {HTTP_TIMEOUT:?} timeout, took {:?}",
+            started.elapsed()
+        );
+        let _ = report;
+    }
+
+    #[tokio::test]
     async fn a_broken_first_route_falls_through_to_the_next() {
         // The sender offers one-click and a mailto. The one-click points at a
         // private address and will be refused, so the mailto must carry it.
         let report = exec(false)
-            .run(&[req_many(vec![
-                UnsubMethod::OneClick {
-                    url: "https://192.168.0.1/u".into(),
-                },
-                UnsubMethod::Mailto {
-                    address: "leave@acme.example".into(),
-                    subject: None,
-                    body: None,
-                },
-            ])])
+            .run(
+                &[req_many(vec![
+                    UnsubMethod::OneClick {
+                        url: "https://192.168.0.1/u".into(),
+                    },
+                    UnsubMethod::Mailto {
+                        address: "leave@acme.example".into(),
+                        subject: None,
+                        body: None,
+                    },
+                ])],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
 
         assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
@@ -904,14 +1031,17 @@ mod tests {
     #[tokio::test]
     async fn when_every_route_fails_the_link_is_still_offered() {
         let report = exec(false)
-            .run(&[req_many(vec![
-                UnsubMethod::OneClick {
-                    url: "https://10.0.0.1/u".into(),
-                },
-                UnsubMethod::ManualLink {
-                    url: "https://acme.example/preferences".into(),
-                },
-            ])])
+            .run(
+                &[req_many(vec![
+                    UnsubMethod::OneClick {
+                        url: "https://10.0.0.1/u".into(),
+                    },
+                    UnsubMethod::ManualLink {
+                        url: "https://acme.example/preferences".into(),
+                    },
+                ])],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
 
         // A dead end would be a failure with nothing to click. Instead the
@@ -929,9 +1059,12 @@ mod tests {
         // it — and nothing in the protocol can tell us which. So the way to
         // finish it by hand survives.
         let report = exec(true)
-            .run(&[req(UnsubMethod::OneClick {
-                url: "https://acme.example/u".into(),
-            })])
+            .run(
+                &[req(UnsubMethod::OneClick {
+                    url: "https://acme.example/u".into(),
+                })],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
         assert_eq!(
             report.outcomes[0].link.as_deref(),
@@ -943,11 +1076,14 @@ mod tests {
     async fn sending_via_gmail_without_permission_fails_clearly() {
         let e = Executor::new(false, MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
         let report = e
-            .run(&[req(UnsubMethod::Mailto {
-                address: "leave@acme.example".into(),
-                subject: None,
-                body: None,
-            })])
+            .run(
+                &[req(UnsubMethod::Mailto {
+                    address: "leave@acme.example".into(),
+                    subject: None,
+                    body: None,
+                })],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
         assert_eq!(report.outcomes[0].status, OutcomeStatus::Failed);
         assert!(report.outcomes[0].detail.contains("permission"));
@@ -991,9 +1127,12 @@ mod tests {
         // nothing about is a dead end, so when a link exists it is offered and
         // the outcome says there is something left to do.
         let report = exec(false)
-            .run(&[req(UnsubMethod::OneClick {
-                url: "https://192.168.0.1/u".into(),
-            })])
+            .run(
+                &[req(UnsubMethod::OneClick {
+                    url: "https://192.168.0.1/u".into(),
+                })],
+                &crate::gmail::Cancel::new(),
+            )
             .await;
         assert_eq!(report.outcomes[0].status, OutcomeStatus::NeedsYou);
         assert_eq!(

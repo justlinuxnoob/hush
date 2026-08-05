@@ -186,7 +186,14 @@ function run(addresses: string[], deleteBacklog: boolean): RunReport {
     outcomes,
     handoffs: [],
     trash: deleteBacklog
-      ? { trashed: binned, failed: 0, simulated: status.dry_run }
+      ? {
+          trashed: binned,
+          failed: 0,
+          simulated: status.dry_run,
+          // The real backend re-queries Gmail to confirm; a rehearsal checks
+          // nothing, and a real run here has nothing to check against.
+          still_present: status.dry_run ? null : 0,
+        }
       : null,
   };
 }
@@ -199,6 +206,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
   mark_welcome_seen: () => undefined,
   save_credentials: () => undefined,
   cancel_connect: () => undefined,
+  cancel_run: () => undefined,
   connect: (a) => {
     // Mirrors the real flow: Google grants what was asked for.
     status = {

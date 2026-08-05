@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 145 passing (131 unit, 14 against a mocked Gmail API) |
+| Rust tests | 147 passing (133 unit, 14 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -279,6 +279,44 @@ something does not answer**.
 - **`security@` and `notification@` were flagged identically**, which would have
   turned the safety warning into wallpaper — and wallpaper is what you scroll
   past on your way to unsubscribing from your bank.
+
+## Cancellation, and where it was missing
+
+Long operations that cannot be abandoned are the recurring failure in this app,
+and each one was found the same way — by someone waiting on a spinner.
+
+| Operation | Worst case before | Now |
+|---|---|---|
+| Connecting to Google | 5 minutes, no button | Stop waiting, noticed within 250ms |
+| Scanning | already cancellable | unchanged |
+| Unsubscribing a batch | 20s timeout × senders, no button | Stop, noticed mid-request |
+| Binning a backlog | thousands of calls, no button | shares the run's cancel |
+
+The unsubscribe case was the worst: fifty senders against slow endpoints is
+sixteen minutes with nothing to press. Cancellation is checked between senders
+*and* inside a request in flight, so Stop is honoured within a quarter second
+rather than at the next timeout boundary. Whatever completed stays completed and
+is reported; the rest simply never happens. Two tests cover it, one asserting
+that stopping beats the HTTP timeout.
+
+## What the wider ecosystem gets wrong
+
+Researched rather than assumed, and it changed the code:
+
+- **405 Method Not Allowed is the commonest one-click failure by a distance.**
+  Senders publish an endpoint in the header that only accepts GET, so it works
+  when clicked in a browser and refuses a POST. 401/403 is the same story with
+  a login in front. All of these are finishable by hand, so they now produce
+  "This sender's unsubscribe only works in a browser" plus the link, instead of
+  a status code and a dead end.
+- **Redirects are common despite being forbidden.** RFC 8058 says a one-click
+  endpoint must not redirect; many answer a successful POST with a 302 to a
+  confirmation page. Treated as delivered, not failed.
+- **A 2xx is not proof of anything.** Advice to senders is explicitly "return
+  200 fast, process asynchronously" — so a success response can precede the
+  actual unsubscribe by some margin, and can equally precede nothing at all.
+  This is why the wording is "sent and accepted" rather than "unsubscribed",
+  and why the link survives a success.
 
 ## What earlier testing found
 

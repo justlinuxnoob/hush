@@ -301,6 +301,18 @@ pub async fn start_scan(
     Ok(())
 }
 
+/// Stop a run of unsubscribes partway through.
+///
+/// Whatever already completed stays completed and is reported; the rest simply
+/// never happens.
+#[tauri::command]
+pub async fn cancel_run(state: State<'_, AppState>) -> Result<()> {
+    if let Some(c) = state.run_cancel.read().await.as_ref() {
+        c.cancel();
+    }
+    Ok(())
+}
+
 /// Give up waiting for Google's consent page.
 #[tauri::command]
 pub async fn cancel_connect(state: State<'_, AppState>) -> Result<()> {
@@ -413,11 +425,16 @@ pub async fn run_unsubscribe(
         executor = executor.with_gmail(session.gmail.clone());
     }
 
-    let mut report = executor.run(&requests).await;
+    let cancel = Cancel::new();
+    *state.run_cancel.write().await = Some(cancel.clone());
 
-    if delete_backlog {
-        report.trash = Some(tidy_up(&state, &account, &requests, dry_run).await?);
+    let mut report = executor.run(&requests, &cancel).await;
+
+    if delete_backlog && !cancel.is_cancelled() {
+        report.trash = Some(tidy_up(&state, &account, &requests, dry_run, &cancel).await?);
     }
+
+    *state.run_cancel.write().await = None;
 
     // A dry run leaves no trace: recording simulated outcomes would make the
     // list look acted-upon when nothing happened.
@@ -442,6 +459,7 @@ async fn tidy_up(
     account: &str,
     requests: &[UnsubRequest],
     dry_run: bool,
+    cancel: &Cancel,
 ) -> Result<TrashReport> {
     let session = state.session.read().await;
     let session = session.as_ref().ok_or(Error::Unauthorized)?;
@@ -458,8 +476,16 @@ async fn tidy_up(
         ids.extend(state.store.bulk_message_ids(account, &r.address)?);
     }
 
-    let cancel = Cancel::new();
-    let report = trash_messages(&session.gmail, &ids, dry_run, &cancel).await;
+    let mut report = trash_messages(&session.gmail, &ids, dry_run, cancel).await;
+
+    // Check the mailbox rather than trusting our own HTTP responses. Gmail's
+    // message list excludes Trash, so anything binned that still comes back
+    // under a search for that sender did not actually move.
+    if !dry_run && !cancel.is_cancelled() {
+        let senders: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
+        report.still_present =
+            crate::unsub::verify_binned(&session.gmail, &senders, &report.moved_ids, cancel).await;
+    }
 
     // Drop what actually moved, so the sender's count reflects reality straight
     // away and a second tidy-up does not re-attempt mail already in the bin.
@@ -634,7 +660,7 @@ mod tests {
 
         let requests = resolve(&state, &["a@x.example".into()]).await.unwrap();
         let executor = Executor::new(true, MailtoMode::HandOff, account.clone()).unwrap();
-        let report = executor.run(&requests).await;
+        let report = executor.run(&requests, &crate::gmail::Cancel::new()).await;
 
         assert_eq!(report.outcomes[0].status, OutcomeStatus::Simulated);
         // `run_unsubscribe` skips recording in dry run; confirm the store is
