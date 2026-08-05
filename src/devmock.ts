@@ -186,7 +186,12 @@ function run(
     outcomes,
     handoffs: [],
     blocked: blockFuture
-      ? { blocked: selectable(addresses).length, failed: 0, problem: null }
+      ? {
+          blocked: selectable(addresses).length,
+          failed: 0,
+          problem: null,
+          confirmed: selectable(addresses).length,
+        }
       : null,
     trash: deleteBacklog
       ? {

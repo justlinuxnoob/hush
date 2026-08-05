@@ -498,16 +498,28 @@ pub async fn run_unsubscribe(
     if block_future && !cancel.is_cancelled() {
         let session = state.session.read().await;
         let session = session.as_ref().ok_or(Error::Unauthorized)?;
-        if !session.can_block {
-            return Err(Error::Setup(
-                "Hush needs permission to set up a Gmail filter for this. \
-                 Reconnect your account and allow it."
-                    .into(),
-            ));
-        }
         let addresses: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
-        report.blocked =
-            Some(crate::unsub::block_senders(&session.gmail, &addresses, &cancel).await);
+
+        report.blocked = Some(if session.can_block {
+            crate::unsub::block_senders(&session.gmail, &addresses, &cancel).await
+        } else {
+            // Reported as a failed block rather than raised as an error. The
+            // unsubscribes have already gone out; failing the whole call would
+            // throw those results away and tell the user nothing happened when
+            // half of it did.
+            log::warn!(
+                "asked to block {} sender(s) without the settings permission",
+                addresses.len()
+            );
+            crate::unsub::BlockReport {
+                blocked: 0,
+                failed: addresses.len() as u64,
+                problem: Some(
+                    "Hush doesn't have Google's permission to create filters yet.".to_string(),
+                ),
+                confirmed: None,
+            }
+        });
     }
 
     *state.run_cancel.write().await = None;

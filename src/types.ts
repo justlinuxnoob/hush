@@ -109,6 +109,8 @@ export interface BlockReport {
   blocked: number;
   failed: number;
   problem: string | null;
+  /** How many filters Gmail confirms exist. null = not checked. */
+  confirmed: number | null;
 }
 
 export interface RunReport {

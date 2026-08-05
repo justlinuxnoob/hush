@@ -409,6 +409,33 @@ afterwards is then a real count of real ids. The scan is now two passes —
 Removing the number would have been the easier fix and the wrong one. It was
 never impossible to get a true total; it just needed the work.
 
+## Blocking silently did nothing without the permission
+
+Reported as "it just didn't block". Confirmed against the live account in a
+minute: `403 — Request had insufficient authentication scopes`. The token had
+`gmail.readonly` and `gmail.modify` and had never been through a consent asking
+for `gmail.settings.basic`.
+
+Worth stating for anyone who assumes otherwise: **the Google Cloud setup does
+not need changing.** Scopes are requested at sign-in, and a test user on a
+project in Testing mode can grant any of them without pre-registration. The
+wizard is fine.
+
+The bug was that the app let the user choose blocking, did nothing, and said
+nothing. Three fixes:
+
+- A missing permission no longer fails the whole run. It used to return an error
+  *after* the unsubscribes had gone out, throwing away results for work that had
+  already happened. It is now reported as a failed block alongside the successful
+  unsubscribes.
+- The results screen distinguishes "nothing was blocked because Google refused"
+  from a successful block, and when the cause is the permission it says which
+  button to press.
+- Blocks are confirmed by listing the account's filters afterwards, the same way
+  binning is confirmed by re-querying the inbox. Claiming success on the strength
+  of an HTTP status is a statement about our request; asking Gmail what filters
+  exist is a statement about the account.
+
 ## Stop did not stop
 
 Starting a scan cancels any scan already running, so that a wedged one can be

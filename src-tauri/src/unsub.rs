@@ -172,6 +172,9 @@ pub struct BlockReport {
     pub blocked: u64,
     pub failed: u64,
     pub problem: Option<String>,
+    /// How many of the filters Gmail confirms exist when asked afterwards.
+    /// `None` when the check could not be run.
+    pub confirmed: Option<u64>,
 }
 
 /// Create a Gmail filter per sender, sending their future mail to Trash.
@@ -206,6 +209,24 @@ pub async fn block_senders(
             }
         }
     }
+
+    // Ask Gmail what filters exist, rather than trusting our own responses.
+    // Saying "blocked" on the strength of an HTTP status is a claim about our
+    // request; this is a claim about the account.
+    if report.blocked > 0 {
+        match gmail.list_filter_senders(cancel).await {
+            Ok(existing) => {
+                report.confirmed = Some(
+                    senders
+                        .iter()
+                        .filter(|a| existing.iter().any(|e| e.eq_ignore_ascii_case(a)))
+                        .count() as u64,
+                );
+            }
+            Err(e) => log::warn!("couldn't confirm the filters: {e}"),
+        }
+    }
+
     report
 }
 

@@ -314,6 +314,41 @@ impl GmailClient {
             .unwrap_or_default())
     }
 
+    /// The `from` address of every filter currently on the account.
+    ///
+    /// Used to confirm a block landed. Gmail is the authority on what filters
+    /// exist; our own 200 only says a request was accepted.
+    pub async fn list_filter_senders(&self, cancel: &Cancel) -> Result<Vec<String>> {
+        let url = format!("{}/gmail/v1/users/me/settings/filters", self.base);
+        let body = self
+            .get(&url, &[], crate::ratelimit::COST_PROFILE, cancel)
+            .await?;
+
+        #[derive(Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            filter: Vec<FilterItem>,
+        }
+        #[derive(Deserialize)]
+        struct FilterItem {
+            #[serde(default)]
+            criteria: Criteria,
+        }
+        #[derive(Default, Deserialize)]
+        struct Criteria {
+            #[serde(default)]
+            from: String,
+        }
+
+        let resp: Resp = serde_json::from_str(&body)?;
+        Ok(resp
+            .filter
+            .into_iter()
+            .map(|f| f.criteria.from)
+            .filter(|f| !f.is_empty())
+            .collect())
+    }
+
     /// Send a raw RFC 5322 message. Only used for `mailto:` unsubscribes, and
     /// only when the user has granted the send permission.
     pub async fn send_raw(&self, raw_rfc822: &str) -> Result<()> {

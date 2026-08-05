@@ -89,12 +89,28 @@ export default function Results({
           </Notice>
         )}
 
+        {report.blocked && report.blocked.blocked === 0 && report.blocked.failed > 0 && (
+          <Notice tone="problem">
+            Nothing was blocked.{" "}
+            {report.blocked.problem ?? "Google refused to create the filter."}{" "}
+            {report.blocked.problem?.includes("permission")
+              ? "Go back and press \u201cAllow Hush to block senders\u201d — Google will ask you once, and blocking works from then on."
+              : "These senders can still reach your inbox."}
+          </Notice>
+        )}
+
         {report.blocked && report.blocked.blocked > 0 && (
           <Notice tone="accent">
             {plural(report.blocked.blocked, "sender")} blocked — anything they
             send from now on goes straight to Trash, whether or not they honour
             the unsubscribe. You can see and undo these under Settings → Filters
             in Gmail.
+            {report.blocked.confirmed !== null &&
+              report.blocked.confirmed === report.blocked.blocked &&
+              " Checked afterwards — the filters are there."}
+            {report.blocked.confirmed !== null &&
+              report.blocked.confirmed < report.blocked.blocked &&
+              ` Checked afterwards, and only ${report.blocked.confirmed} of them actually exist.`}
             {report.blocked.failed > 0 &&
               ` ${report.blocked.failed} couldn't be blocked${
                 report.blocked.problem ? ` — ${report.blocked.problem}` : ""
