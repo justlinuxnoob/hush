@@ -737,6 +737,37 @@ input.mono {
   }
 }
 
+/* The full list of a sender's mail scrolls inside the row rather than pushing
+   everything below it off the screen. */
+.subject-list {
+  max-height: 15rem;
+  overflow-y: auto;
+  padding-right: calc(var(--step) * 1);
+}
+
+.subject-row {
+  display: flex;
+  gap: calc(var(--step) * 3);
+  align-items: baseline;
+  padding: calc(var(--step) * 1) 0;
+}
+
+.subject-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subject-row + .subject-row {
+  border-top: 1px solid var(--rule);
+}
+
+.stack-1 > * + * {
+  margin-top: calc(var(--step) * 0.5);
+}
+
 .warn-note {
   margin-top: calc(var(--step) * 2);
   padding: calc(var(--step) * 2) calc(var(--step) * 3);

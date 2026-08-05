@@ -222,6 +222,15 @@ const handlers: Record<string, (a: Args) => unknown> = {
   disconnect: () => status,
   erase_everything: () => status,
   list_senders: () => senders,
+  sender_messages: (a) => {
+    const s = senders.find((x) => x.address === a.address);
+    const n = s?.message_count ?? 0;
+    // Enough rows to make the scrolling worth looking at.
+    return Array.from({ length: Math.min(n, 120) }, (_, i) => ({
+      subject: `${s?.display_name ?? "Sender"} — message ${n - i}`,
+      date_ms: now - i * DAY,
+    }));
+  },
   outcomes: () => [],
   data_location: () => "~/.local/share/dev.hush.desktop/hush.sqlite3 (demo)",
   cancel_scan: () => undefined,

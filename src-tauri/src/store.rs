@@ -271,6 +271,30 @@ impl Store {
         Ok(removed)
     }
 
+    /// Every subject Hush holds for one sender, newest first.
+    ///
+    /// Loaded on demand rather than bundled into the sender list: a mailbox
+    /// with sixty senders and hundreds of messages each would put tens of
+    /// thousands of strings into a payload the list screen mostly never shows.
+    pub fn subjects_for_sender(
+        &self,
+        account: &str,
+        sender: &str,
+        limit: u32,
+    ) -> Result<Vec<(String, i64)>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT subject, date_ms FROM messages
+             WHERE account = ?1 AND sender = ?2 AND subject != ''
+             ORDER BY date_ms DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![account, sender, limit], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     // --- senders -----------------------------------------------------------
 
     /// Build the sender list the interface shows.
@@ -890,6 +914,34 @@ mod tests {
         new.sender_name = "New Name".into();
         s.put_messages(ACC, &[old, new]).unwrap();
         assert_eq!(s.senders(ACC).unwrap()[0].display_name, "New Name");
+    }
+
+    #[test]
+    fn every_subject_can_be_listed_for_one_sender() {
+        let s = Store::open_in_memory().unwrap();
+        let lu = Some("<https://x.example/u>");
+        let batch: Vec<_> = (0..30)
+            .map(|i| {
+                msg(
+                    &format!("m{i}"),
+                    "a@x.example",
+                    &format!("Subject {i}"),
+                    i,
+                    lu,
+                )
+            })
+            .collect();
+        s.put_messages(ACC, &batch).unwrap();
+        s.put_messages(ACC, &[msg("other", "b@x.example", "Not theirs", 1, lu)])
+            .unwrap();
+
+        let all = s.subjects_for_sender(ACC, "a@x.example", 500).unwrap();
+        assert_eq!(all.len(), 30, "not capped at the list screen's sample");
+        assert_eq!(all[0].0, "Subject 29", "newest first");
+        assert!(!all.iter().any(|(subject, _)| subject == "Not theirs"));
+
+        let capped = s.subjects_for_sender(ACC, "a@x.example", 10).unwrap();
+        assert_eq!(capped.len(), 10);
     }
 
     #[test]

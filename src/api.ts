@@ -18,6 +18,7 @@ import type {
   RunProgress,
   ScanProgress,
   Sender,
+  SenderMessage,
   Status,
 } from "./types";
 
@@ -50,6 +51,9 @@ export const startScan = (depth: ScanDepth, incremental: boolean) =>
 export const cancelScan = () => invoke<void>("cancel_scan");
 
 export const listSenders = () => invoke<Sender[]>("list_senders");
+
+export const senderMessages = (address: string) =>
+  invoke<SenderMessage[]>("sender_messages", { address });
 
 export const setNeverTouch = (address: string, never: boolean) =>
   invoke<void>("set_never_touch", { address, never });

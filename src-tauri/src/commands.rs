@@ -350,6 +350,30 @@ pub async fn list_senders(state: State<'_, AppState>) -> Result<Vec<Sender>> {
     state.store.senders(&account)
 }
 
+/// Every subject Hush has for one sender, newest first.
+#[tauri::command]
+pub async fn sender_messages(
+    state: State<'_, AppState>,
+    address: String,
+) -> Result<Vec<SenderMessage>> {
+    let account = state.account_or_stored().await?;
+    // Generous, but not unbounded: a sender with tens of thousands of messages
+    // should not be able to stall the interface.
+    const MAX: u32 = 500;
+    Ok(state
+        .store
+        .subjects_for_sender(&account, &address, MAX)?
+        .into_iter()
+        .map(|(subject, date_ms)| SenderMessage { subject, date_ms })
+        .collect())
+}
+
+#[derive(Debug, Serialize)]
+pub struct SenderMessage {
+    pub subject: String,
+    pub date_ms: i64,
+}
+
 #[tauri::command]
 pub async fn set_never_touch(
     state: State<'_, AppState>,

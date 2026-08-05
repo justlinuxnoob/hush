@@ -95,6 +95,11 @@ export interface TrashReport {
   problem: string | null;
 }
 
+export interface SenderMessage {
+  subject: string;
+  date_ms: number;
+}
+
 export interface BlockReport {
   blocked: number;
   failed: number;

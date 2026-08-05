@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import * as api from "../api";
 import { Checkbox, Notice, formatDate, plural } from "../components/ui";
-import { errorMessage, methodLabel, type Sender } from "../types";
+import {
+  errorMessage,
+  methodLabel,
+  type Sender,
+  type SenderMessage,
+} from "../types";
 
 type Filter = "all" | "automatic" | "manual" | "flagged" | "handled";
 
@@ -51,6 +56,23 @@ export default function SenderList({
   const [filter, setFilter] = useState<Filter>("all");
   const [problem, setProblem] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Fetched when a row is opened rather than bundled into every sender: the
+  // list holds a handful of samples, this holds the lot.
+  const [subjects, setSubjects] = useState<SenderMessage[] | null>(null);
+
+  async function openSubjects(address: string) {
+    if (expanded === address) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(address);
+    setSubjects(null);
+    try {
+      setSubjects(await api.senderMessages(address));
+    } catch (e) {
+      setProblem(errorMessage(e));
+    }
+  }
 
   // A rescan can remove a sender. Dropping selections that no longer exist
   // keeps the count in the action bar honest.
@@ -270,14 +292,25 @@ export default function SenderList({
                   </div>
                 )}
 
-                {isOpen && s.sample_subjects.length > 0 && (
+                {isOpen && (
                   <div className="panel stack stack-2" style={{ marginTop: "calc(var(--step)*2)" }}>
-                    <span className="small muted">Recent subjects</span>
-                    {s.sample_subjects.slice(0, 5).map((subject, i) => (
-                      <span key={i} className="small">
-                        {subject}
-                      </span>
-                    ))}
+                    <span className="small muted">
+                      {subjects === null
+                        ? "Loading…"
+                        : `Everything from them that Hush has seen (${subjects.length})`}
+                    </span>
+                    {subjects !== null && (
+                      <div className="subject-list stack stack-1">
+                        {subjects.map((m, i) => (
+                          <div key={i} className="subject-row">
+                            <span className="small">{m.subject}</span>
+                            <span className="muted small tabular">
+                              {formatDate(m.date_ms)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -285,13 +318,13 @@ export default function SenderList({
                   className="row row-tight sender-actions"
                   style={{ marginTop: "calc(var(--step) * 1.5)" }}
                 >
-                  {s.sample_subjects.length > 0 && (
+                  {s.message_count > 0 && (
                     <button
                       className="btn-quiet btn-small"
-                      onClick={() => setExpanded(isOpen ? null : s.address)}
+                      onClick={() => openSubjects(s.address)}
                       aria-expanded={isOpen}
                     >
-                      {isOpen ? "Hide recent subjects" : "Show recent subjects"}
+                      {isOpen ? "Hide their emails" : `Show all ${s.message_count} emails`}
                     </button>
                   )}
                   <button className="btn-quiet btn-small" onClick={() => protectSender(s)}>

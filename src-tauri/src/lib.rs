@@ -60,6 +60,7 @@ pub fn run() {
             commands::cancel_scan,
             commands::list_senders,
             commands::set_never_touch,
+            commands::sender_messages,
             commands::plan_unsubscribe,
             commands::run_unsubscribe,
             commands::mark_manual_done,
