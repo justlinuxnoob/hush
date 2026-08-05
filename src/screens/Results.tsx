@@ -51,9 +51,17 @@ export default function Results({
     }
   }
 
+  const acted = succeeded.length + sent.length + needsYou.length + failed.length;
+  const binned = report.trash?.trashed ?? 0;
+
   const headline = status.dry_run
     ? "Nothing happened — that was the practice run"
-    : summarise(succeeded.length + sent.length, needsYou.length);
+    : // A bin-only run has no unsubscribe outcomes at all, and "Nothing to
+      // report" would be a strange thing to say after moving five hundred
+      // emails.
+      acted === 0 && binned > 0
+      ? `${plural(binned, "old email")} moved to Trash`
+      : summarise(succeeded.length + sent.length, needsYou.length);
 
   return (
     <div className="centre">

@@ -407,6 +407,7 @@ pub async fn run_unsubscribe(
     app: AppHandle,
     state: State<'_, AppState>,
     selection: Selection,
+    unsubscribe: bool,
     delete_backlog: bool,
 ) -> Result<RunReport> {
     let account = state.account_or_stored().await?;
@@ -434,7 +435,14 @@ pub async fn run_unsubscribe(
         let _ = app.emit(EVENT_RUN_PROGRESS, p);
     };
 
-    let mut report = executor.run_reporting(&requests, &cancel, emit).await;
+    // Unsubscribing and clearing the backlog are separate jobs. Wanting a
+    // sender's old mail gone is not the same as wanting to stop hearing from
+    // them, and neither should drag the other along.
+    let mut report = if unsubscribe {
+        executor.run_reporting(&requests, &cancel, emit).await
+    } else {
+        RunReport::default()
+    };
 
     if delete_backlog && !cancel.is_cancelled() {
         report.trash = Some(tidy_up(&state, &account, &requests, dry_run, &cancel, &app).await?);

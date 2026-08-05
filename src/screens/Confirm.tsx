@@ -37,7 +37,7 @@ export default function Confirm({
   const [plan, setPlan] = useState<PlannedAction[] | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [acceptedFlagged, setAcceptedFlagged] = useState(false);
-  const [alsoDelete, setAlsoDelete] = useState(false);
+  const [action, setAction] = useState<"unsubscribe" | "bin" | "both">("unsubscribe");
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -65,7 +65,13 @@ export default function Confirm({
     setProblem(null);
     setBusy(true);
     try {
-      onDone(await api.runUnsubscribe(addresses, alsoDelete));
+      onDone(
+        await api.runUnsubscribe(
+          addresses,
+          action !== "bin",
+          action !== "unsubscribe"
+        )
+      );
     } catch (e) {
       setProblem(errorMessage(e));
       setBusy(false);
@@ -85,7 +91,8 @@ export default function Confirm({
     try {
       const s = await api.connect(status.can_send, true);
       onStatusChange(s);
-      if (s.can_delete) setAlsoDelete(true);
+      // They asked for it, so preselect the thing they asked for.
+      if (s.can_delete) setAction("both");
     } catch (e) {
       if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
     } finally {
@@ -93,15 +100,6 @@ export default function Confirm({
     }
   }
 
-  /** The practice/real choice lives here, not behind a toggle on another screen. */
-  async function setPractice(on: boolean) {
-    try {
-      await api.setDryRun(on);
-      onStatusChange(await api.status());
-    } catch (e) {
-      setProblem(errorMessage(e));
-    }
-  }
 
   const blocked = flagged.length > 0 && !acceptedFlagged;
 
@@ -145,69 +143,35 @@ export default function Confirm({
           />
         </div>
 
-        {status.can_delete ? (
+        {!status.can_delete && binnable > 0 && (
           <div className="card stack stack-3">
-            <label
-              className="row"
-              style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
-            >
-              <input
-                type="checkbox"
-                checked={alsoDelete}
-                onChange={(e) => setAlsoDelete(e.target.checked)}
-                style={{ marginTop: "5px", accentColor: "var(--accent)" }}
-              />
-              <span>
-                <strong>
-                  Also bin their old emails
-                  {binnable > 0 && ` (${binnable.toLocaleString()})`}
-                </strong>
-                <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-                  Moves their past newsletters to your Gmail Trash, where they
-                  stay for 30 days in case you change your mind.
-                  {kept > 0 && (
-                    <>
-                      {" "}
-                      {kept.toLocaleString()} other{" "}
-                      {kept === 1 ? "email" : "emails"} from these senders —
-                      receipts, confirmations and the like — will be left alone.
-                    </>
-                  )}
-                </span>
+            <div className="stack">
+              <strong>Want their old emails gone too?</strong>
+              <span className="muted small">
+                {binnable.toLocaleString()} newsletters from these senders could
+                move to your Gmail Trash, recoverable there for 30 days.
+                {kept > 0 && (
+                  <>
+                    {" "}
+                    Their {kept.toLocaleString()} other{" "}
+                    {kept === 1 ? "email" : "emails"} — receipts, confirmations
+                    and the like — would be left alone.
+                  </>
+                )}{" "}
+                Only emails Hush has scanned can be moved. Google grants this
+                separately, so your browser will open once.
               </span>
-            </label>
-          </div>
-        ) : (
-          binnable > 0 && (
-            <div className="card stack stack-3">
-              <div className="stack">
-                <strong>Also bin their old emails?</strong>
-                <span className="muted small">
-                  {binnable.toLocaleString()} newsletters from these senders
-                  would move to your Gmail Trash, recoverable there for 30 days.
-                  {kept > 0 && (
-                    <>
-                      {" "}
-                      Their {kept.toLocaleString()} other{" "}
-                      {kept === 1 ? "email" : "emails"} — receipts, confirmations
-                      and the like — would be left alone.
-                    </>
-                  )}{" "}
-                  Google has to grant this separately, so your browser will open
-                  once.
-                </span>
-              </div>
-              <div>
-                <button
-                  className="btn-secondary"
-                  onClick={askToBin}
-                  disabled={asking || busy}
-                >
-                  {asking ? "Waiting for your browser…" : "Allow this"}
-                </button>
-              </div>
             </div>
-          )
+            <div>
+              <button
+                className="btn-secondary"
+                onClick={askToBin}
+                disabled={asking || busy}
+              >
+                {asking ? "Waiting for your browser…" : "Allow this"}
+              </button>
+            </div>
+          </div>
         )}
 
         {flagged.length > 0 && (
@@ -243,36 +207,49 @@ export default function Confirm({
         )}
 
         <div className="card stack stack-3">
-          <h3>How should Hush do this?</h3>
+          <h3>What should Hush do?</h3>
           <div className="choices">
             <button
               className="choice"
-              aria-pressed={status.dry_run}
+              aria-pressed={action === "unsubscribe"}
               disabled={busy}
-              onClick={() => setPractice(true)}
+              onClick={() => setAction("unsubscribe")}
             >
               <span>
-                <strong>Try it first</strong>
+                <strong>Unsubscribe only</strong>
                 <span className="why">
-                  Show me exactly what would happen. Nothing is sent, nothing is
-                  moved, nothing changes.
+                  Stop what arrives next. Everything already in your inbox stays
+                  exactly where it is.
                 </span>
               </span>
             </button>
             <button
               className="choice"
-              aria-pressed={!status.dry_run}
-              disabled={busy}
-              onClick={() => setPractice(false)}
+              aria-pressed={action === "bin"}
+              disabled={busy || !status.can_delete}
+              onClick={() => setAction("bin")}
             >
               <span>
-                <strong>Do it for real</strong>
+                <strong>Bin their old emails only</strong>
                 <span className="why">
-                  Unsubscribe from {plural(chosen.length, "sender")}
-                  {alsoDelete && binnable > 0
-                    ? `, and move ${binnable.toLocaleString()} old emails to Trash`
-                    : ""}
-                  . This actually happens.
+                  {status.can_delete
+                    ? `Move ${binnable.toLocaleString()} old newsletters to Trash and leave the subscription alone — for senders you still want to hear from.`
+                    : "Needs Google's permission to move mail. Allow it below first."}
+                </span>
+              </span>
+            </button>
+            <button
+              className="choice"
+              aria-pressed={action === "both"}
+              disabled={busy || !status.can_delete}
+              onClick={() => setAction("both")}
+            >
+              <span>
+                <strong>Both</strong>
+                <span className="why">
+                  {status.can_delete
+                    ? `Unsubscribe, and move their ${binnable.toLocaleString()} old newsletters to Trash.`
+                    : "Needs Google's permission to move mail. Allow it below first."}
                 </span>
               </span>
             </button>
@@ -316,9 +293,9 @@ export default function Confirm({
               ? progress
                 ? `${progress.doing}…`
                 : "Starting…"
-              : status.dry_run
-                ? "Show me what would happen"
-                : alsoDelete && binnable > 0
+              : action === "bin"
+                ? `Bin ${plural(binnable, "email")}`
+                : action === "both"
                   ? `Unsubscribe and bin ${plural(binnable, "email")}`
                   : `Unsubscribe from ${plural(chosen.length, "sender")}`}
           </button>

@@ -54,8 +54,16 @@ export const setNeverTouch = (address: string, never: boolean) =>
 export const planUnsubscribe = (addresses: string[]) =>
   invoke<PlannedAction[]>("plan_unsubscribe", { selection: { addresses } });
 
-export const runUnsubscribe = (addresses: string[], deleteBacklog: boolean) =>
-  invoke<RunReport>("run_unsubscribe", { selection: { addresses }, deleteBacklog });
+export const runUnsubscribe = (
+  addresses: string[],
+  unsubscribe: boolean,
+  deleteBacklog: boolean
+) =>
+  invoke<RunReport>("run_unsubscribe", {
+    selection: { addresses },
+    unsubscribe,
+    deleteBacklog,
+  });
 
 export const markManualDone = (address: string) =>
   invoke<void>("mark_manual_done", { address });

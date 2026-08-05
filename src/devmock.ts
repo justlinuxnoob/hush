@@ -29,7 +29,8 @@ let status: Status = {
   has_credentials: true,
   can_send: false,
   can_delete: false,
-  dry_run: true,
+  // Off, matching the real default since 0.2.3.
+  dry_run: false,
   mailto_mode: "hand_off",
   keychain_available: true,
   token_storage: "keychain",
@@ -142,8 +143,8 @@ function plan(addresses: string[]): PlannedAction[] {
     }));
 }
 
-function run(addresses: string[], deleteBacklog: boolean): RunReport {
-  const outcomes: Outcome[] = selectable(addresses)
+function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean): RunReport {
+  const outcomes: Outcome[] = (unsubscribe ? selectable(addresses) : [])
     .map((s) => ({
       address: s.address,
       display_name: s.display_name,
@@ -244,7 +245,11 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   plan_unsubscribe: (a) => plan((a.selection as { addresses: string[] }).addresses),
   run_unsubscribe: (a) =>
-    run((a.selection as { addresses: string[] }).addresses, Boolean(a.deleteBacklog)),
+    run(
+      (a.selection as { addresses: string[] }).addresses,
+      a.unsubscribe !== false,
+      Boolean(a.deleteBacklog)
+    ),
   start_scan: () => {
     // Pretend to walk a mailbox so the progress screen can be looked at.
     let scanned = 0;

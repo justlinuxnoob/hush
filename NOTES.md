@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 147 passing (133 unit, 14 against a mocked Gmail API) |
+| Rust tests | 149 passing (135 unit, 14 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -279,6 +279,36 @@ something does not answer**.
 - **`security@` and `notification@` were flagged identically**, which would have
   turned the safety warning into wallpaper — and wallpaper is what you scroll
   past on your way to unsubscribing from your bank.
+
+## Practice mode, and why it is gone from the flow
+
+The original brief asked for a dry-run toggle, on by default for the first
+launch. It was built exactly as specified and turned out to be the single most
+damaging thing in the app.
+
+A first-time user unsubscribed, binned mail, checked Gmail, found everything
+untouched, and concluded — reasonably — that nothing worked. It had done
+precisely as instructed. Hours went into hunting bugs elsewhere because the
+symptom of "practice mode on" is identical to the symptom of "completely
+broken", and the only clue was the word "Dry run" on a toggle in a corner.
+
+It now defaults off, is absent from the main flow, and survives as an opt-in
+setting for anyone who deliberately wants a rehearsal. The safety this project
+actually rests on never depended on it: the unsubscribe-header gate, the
+never-touch list, the transactional warnings, the confirmation screen and
+Trash-rather-than-permanent-delete are all unchanged.
+
+**The lesson is not "do not build dry-run modes."** It is that a default which
+makes an app silently do nothing is indistinguishable from a broken app, and
+the person who chose the default is the last one who will notice.
+
+## Unsubscribing and binning are separate choices
+
+They were welded together: you could unsubscribe, or unsubscribe *and* bin, but
+there was no way to clear out a sender's backlog while staying subscribed. That
+is a real thing to want — a newsletter worth keeping whose eight hundred old
+issues are not. The confirmation screen now offers three: unsubscribe only, bin
+only, or both.
 
 ## Senders that accept a one-click POST and then still want a click
 

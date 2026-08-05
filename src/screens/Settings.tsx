@@ -95,11 +95,12 @@ export default function Settings({
           <div className="card stack stack-4">
             <div className="row" style={{ alignItems: "flex-start" }}>
               <div className="stack" style={{ flex: 1 }}>
-                <strong>Start with a practice run</strong>
+                <strong>Practice mode</strong>
                 <span className="muted small">
-                  When on, Hush offers to show you what would happen before
-                  doing it. You can switch between practice and the real thing
-                  on the confirmation screen each time.
+                  Off. When on, Hush goes through the motions and sends nothing
+                  — useful if you want to see what a run would do first. It
+                  used to be on by default, which made the app look broken, so
+                  now you have to ask for it.
                 </span>
               </div>
               <Switch

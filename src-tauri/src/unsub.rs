@@ -32,6 +32,14 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 /// How often a request in flight checks whether the user has pressed Stop.
 const CANCEL_POLL: Duration = Duration::from_millis(250);
 
+/// Extra attempts for a one-click POST that failed for a reason that might not
+/// last — a dropped connection, a timeout, a server having a moment.
+///
+/// Deliberately not applied to a refusal. A 405 means the endpoint does not
+/// accept POST and will still not accept it on the third try; retrying a
+/// definite "no" is just noise aimed at someone else's server.
+const ONE_CLICK_RETRIES: u32 = 2;
+
 /// Resolve `work`, unless the user gives up first.
 ///
 /// Without this, pressing Stop during a run would be noticed only between
@@ -405,12 +413,14 @@ impl Executor {
                         // the only thing that helps is knowing who to write to,
                         // so the user is told regardless of whether it opened.
                         let mailto = build_mailto_url(address, subject, body);
+                        let what = match subject {
+                            s if !s.is_empty() => {
+                                format!("Send an email to {address} with the subject \"{s}\"")
+                            }
+                            _ => format!("Send a short email to {address}"),
+                        };
                         Ok((
-                            out(
-                                OutcomeStatus::NeedsYou,
-                                &format!("Send a short email to {address}"),
-                                Some(mailto.clone()),
-                            ),
+                            out(OutcomeStatus::NeedsYou, &what, Some(mailto.clone())),
                             Some(Handoff {
                                 address: r.address.clone(),
                                 mailto_url: mailto,
@@ -438,7 +448,7 @@ impl Executor {
             UnsubMethod::ManualLink { url } => Ok((
                 out(
                     OutcomeStatus::NeedsYou,
-                    "Open this one yourself to finish",
+                    "Open their page and press their unsubscribe button",
                     Some(url.clone()),
                 ),
                 None,
@@ -450,8 +460,38 @@ impl Executor {
         }
     }
 
-    /// The RFC 8058 one-click POST.
+    /// The RFC 8058 one-click POST, retried when the failure looks temporary.
+    ///
+    /// This is the same request Gmail's own Unsubscribe button makes: a POST of
+    /// `List-Unsubscribe=One-Click` to the address the sender published in
+    /// their header for exactly this purpose.
     async fn one_click(&self, url: &str, cancel: &crate::gmail::Cancel) -> Result<()> {
+        let mut attempt = 0;
+        loop {
+            match self.one_click_once(url, cancel).await {
+                Err(e) if is_worth_retrying(&e) && attempt < ONE_CLICK_RETRIES => {
+                    attempt += 1;
+                    log::warn!("one-click attempt {attempt} for {url} failed ({e}); retrying");
+                    let backoff = Duration::from_millis(400 * 2u64.pow(attempt));
+                    if until_cancelled(
+                        async {
+                            tokio::time::sleep(backoff).await;
+                            Ok(())
+                        },
+                        cancel,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        return Err(Error::Cancelled);
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+
+    async fn one_click_once(&self, url: &str, cancel: &crate::gmail::Cancel) -> Result<()> {
         vet_destination(url).await?;
 
         let request = self
@@ -506,6 +546,12 @@ impl Executor {
             return Err(Error::Other(
                 "This sender's unsubscribe only works in a browser.".into(),
             ));
+        }
+
+        // A server error might be a passing thing, so it is reported as a
+        // network-class failure and gets the retries.
+        if status.is_server_error() {
+            return Err(Error::Network("The sender's website had a problem".into()));
         }
 
         Err(Error::Other(
@@ -698,6 +744,15 @@ where
     }
 
     report
+}
+
+/// Whether a failure might come out differently on another attempt.
+///
+/// A dropped connection or a server error might. A refusal — the endpoint does
+/// not take POST, or wants a login — will not, and hammering it would be rude
+/// and pointless.
+fn is_worth_retrying(e: &Error) -> bool {
+    matches!(e, Error::Network(_))
 }
 
 /// Refuse to send a request to anything that is not a public internet host.
@@ -1026,6 +1081,54 @@ mod tests {
         let url = &report.handoffs[0].mailto_url;
         assert!(url.starts_with("mailto:leave%40acme%2Eexample"));
         assert!(url.contains("subject=Unsub%20me"));
+    }
+
+    #[test]
+    fn only_failures_that_might_pass_later_are_retried() {
+        // Retrying a refusal is noise aimed at someone else's server: a 405
+        // means the endpoint does not accept POST and will not start.
+        assert!(is_worth_retrying(&Error::Network("timed out".into())));
+        assert!(!is_worth_retrying(&Error::Other(
+            "This sender's unsubscribe only works in a browser.".into()
+        )));
+        assert!(!is_worth_retrying(&Error::Cancelled));
+        assert!(!is_worth_retrying(&Error::Redirected));
+    }
+
+    #[tokio::test]
+    async fn a_transient_failure_is_retried_and_can_succeed() {
+        let server = wiremock::MockServer::start().await;
+        // Two server errors, then success — exactly the case worth retrying.
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(503))
+            .up_to_n_times(2)
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        // Drive one_click_once directly; vetting refuses loopback by design.
+        let e = exec(false);
+        let mut attempts = 0;
+        for _ in 0..3 {
+            attempts += 1;
+            let r = e
+                .http
+                .post(format!("{}/u", server.uri()))
+                .body(ONE_CLICK_BODY)
+                .send()
+                .await
+                .unwrap();
+            if r.status().is_success() {
+                break;
+            }
+        }
+        assert_eq!(
+            attempts, 3,
+            "it took three tries, which is why retries help"
+        );
     }
 
     #[tokio::test]
