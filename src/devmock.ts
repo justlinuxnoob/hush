@@ -258,22 +258,42 @@ const handlers: Record<string, (a: Args) => unknown> = {
       Boolean(a.blockFuture)
     ),
   start_scan: () => {
-    // Pretend to walk a mailbox so the progress screen can be looked at.
-    let scanned = 0;
+    // Both passes, so the progress screen can be looked at as it really behaves.
     const total = 18_442;
-    const tick = window.setInterval(() => {
-      scanned = Math.min(total, scanned + 900);
-      const finished = scanned >= total;
-      if (finished) window.clearInterval(tick);
+    let found = 0;
+    let scanned = 0;
+
+    const counting = window.setInterval(() => {
+      found = Math.min(total, found + 2500);
       emit("scan-progress", {
-        scanned,
-        total_estimate: total,
-        senders_found: finished ? senders.length : 0,
-        finished,
+        scanned: 0,
+        total: 0,
+        counting: true,
+        found,
+        senders_found: 0,
+        finished: false,
         cancelled: false,
         note: null,
       });
-    }, 220);
+      if (found >= total) {
+        window.clearInterval(counting);
+        const reading = window.setInterval(() => {
+          scanned = Math.min(total, scanned + 900);
+          const finished = scanned >= total;
+          if (finished) window.clearInterval(reading);
+          emit("scan-progress", {
+            scanned,
+            total,
+            counting: false,
+            found: total,
+            senders_found: finished ? senders.length : 0,
+            finished,
+            cancelled: false,
+            note: null,
+          });
+        }, 200);
+      }
+    }, 180);
     return undefined;
   },
 };

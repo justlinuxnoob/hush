@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 157 passing (141 unit, 16 against a mocked Gmail API) |
+| Rust tests | 158 passing (142 unit, 16 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -391,6 +391,33 @@ Three things made this take far longer than it should have:
 **The lesson**: mocks agree with you. The mock server was more permissive than
 Google in exactly the way that hid a total feature failure, and no amount of
 test coverage against it would ever have found this.
+
+## The scan counts before it reads
+
+Gmail's `resultSizeEstimate` was the only total available, because listing and
+fetching were interleaved — a page of ids, then that page's metadata, then the
+next page. So the number beside the progress bar was Gmail's guess, and Gmail's
+guess is wrong often enough to be worse than no number: a scan would go past
+"501 messages" and keep counting upward past it.
+
+Listing ids costs 5 quota units per 500 messages. Counting an entire mailbox
+first is a few seconds and a rounding error of quota, and every number shown
+afterwards is then a real count of real ids. The scan is now two passes —
+"Counting your emails, 12,431 found so far", then "Reading your emails, 3,120 of
+12,431" — and the progress bar means something.
+
+Removing the number would have been the easier fix and the wrong one. It was
+never impossible to get a true total; it just needed the work.
+
+## Stop did not stop
+
+Starting a scan cancels any scan already running, so that a wedged one can be
+replaced. But a finishing scan cleared the shared cancel handle
+unconditionally — including when a *later* scan had already taken ownership of
+it. The later scan then ran with a Stop button wired to nothing.
+
+A cancel handle now knows which operation it belongs to, and only clears the
+shared slot if it is still its own.
 
 ## There was no logger
 

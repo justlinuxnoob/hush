@@ -53,7 +53,16 @@ impl Scanner {
         }
     }
 
-    /// Scan from scratch (or resume an interrupted one) to the given depth.
+    /// Scan from scratch to the given depth.
+    ///
+    /// Two passes. The first counts — it pages through message ids and nothing
+    /// else, which costs 5 quota units per 500 messages and takes seconds even
+    /// for a large mailbox. The second reads metadata, against a total that is
+    /// now an exact count rather than a guess.
+    ///
+    /// The one-pass version that interleaved them could only ever quote Gmail's
+    /// `resultSizeEstimate`, which is wrong often enough to be worse than no
+    /// number at all: a scan would pass "501 messages" and keep going.
     pub async fn full_scan<F>(
         &self,
         depth: ScanDepth,
@@ -64,87 +73,65 @@ impl Scanner {
         F: FnMut(&ScanProgress) + Send,
     {
         let query = build_query(depth);
-        let previous = self.store.scan_state(&self.account)?;
-
-        // Resume only when the depth matches; a different depth is a different
-        // sweep and its page token would be meaningless.
-        let resume_token =
-            if previous.depth.as_deref() == Some(depth_key(depth)) && !previous.complete {
-                previous.page_token.clone()
-            } else {
-                None
-            };
-
         let known = self.store.known_ids(&self.account)?;
-        // Every id Gmail returns this sweep, so the end of a completed scan can
-        // drop local rows for mail that is no longer there.
-        let mut seen: Vec<String> = Vec::new();
+
         let mut progress = ScanProgress {
-            scanned: self.store.message_count(&self.account)?,
+            counting: true,
             ..Default::default()
         };
+        on_progress(&progress);
 
-        let mut page_token = resume_token;
+        // --- pass one: count -------------------------------------------------
+        let mut seen: Vec<String> = Vec::new();
+        let mut page_token: Option<String> = None;
         loop {
             if cancel.is_cancelled() {
-                return Ok(self.stop_early(progress, page_token, depth, true, None));
+                return Ok(self.stop_early(progress, depth, true, None));
             }
-
             let page = match self
                 .gmail
                 .list_messages(&query, page_token.as_deref(), LIST_PAGE_SIZE, &cancel)
                 .await
             {
                 Ok(p) => p,
-                Err(Error::Cancelled) => {
-                    return Ok(self.stop_early(progress, page_token, depth, true, None))
-                }
+                Err(Error::Cancelled) => return Ok(self.stop_early(progress, depth, true, None)),
                 Err(e) => return Err(e),
             };
 
-            // Gmail's own estimate, and it can be wildly wrong in either
-            // direction — cases of it reporting thousands for a handful of
-            // matches are well known. Keep the largest seen so the bar never
-            // walks backwards; the interface stops quoting it entirely once the
-            // real count overtakes it.
-            progress.total_estimate = progress.total_estimate.max(page.total_estimate);
-
-            // Every id in scope, whether or not it needs fetching, so a
-            // completed sweep knows exactly what Gmail still holds.
-            seen.extend(page.ids.iter().cloned());
-
-            let wanted: Vec<String> = page
-                .ids
-                .into_iter()
-                .filter(|id| !known.contains(id))
-                .collect();
-
-            match self
-                .fetch_batch(&wanted, &cancel, &mut progress, &mut on_progress)
-                .await
-            {
-                Ok(()) => {}
-                Err(Error::Cancelled) => {
-                    return Ok(self.stop_early(progress, page_token, depth, true, None))
-                }
-                Err(e) => {
-                    // Keep what we have and tell the user plainly. A partial
-                    // list is far more useful than an error screen.
-                    return Ok(self.stop_early(
-                        progress,
-                        page_token,
-                        depth,
-                        false,
-                        Some(e.to_string()),
-                    ));
-                }
-            }
+            seen.extend(page.ids);
+            progress.found = seen.len() as u64;
+            on_progress(&progress);
 
             page_token = page.next_page_token;
-            self.save_state(page_token.clone(), depth, false)?;
-
             if page_token.is_none() {
                 break;
+            }
+        }
+
+        // --- pass two: read --------------------------------------------------
+        let wanted: Vec<String> = seen
+            .iter()
+            .filter(|id| !known.contains(*id))
+            .cloned()
+            .collect();
+
+        progress.counting = false;
+        progress.total = seen.len() as u64;
+        // Anything already held counts as read, so the bar starts where the
+        // last run left off rather than at zero.
+        progress.scanned = (seen.len() - wanted.len()) as u64;
+        on_progress(&progress);
+
+        match self
+            .fetch_batch(&wanted, &cancel, &mut progress, &mut on_progress)
+            .await
+        {
+            Ok(()) => {}
+            Err(Error::Cancelled) => return Ok(self.stop_early(progress, depth, true, None)),
+            Err(e) => {
+                // Keep what we have and say so plainly. A partial list is far
+                // more useful than an error screen.
+                return Ok(self.stop_early(progress, depth, false, Some(e.to_string())));
             }
         }
 
@@ -343,12 +330,11 @@ impl Scanner {
     fn stop_early(
         &self,
         mut progress: ScanProgress,
-        page_token: Option<String>,
         depth: ScanDepth,
         cancelled: bool,
         note: Option<String>,
     ) -> ScanProgress {
-        let _ = self.save_state(page_token, depth, false);
+        let _ = self.save_state(depth, false);
         progress.cancelled = cancelled;
         progress.finished = true;
         progress.note = note;
@@ -360,12 +346,7 @@ impl Scanner {
         progress
     }
 
-    fn save_state(
-        &self,
-        page_token: Option<String>,
-        depth: ScanDepth,
-        complete: bool,
-    ) -> Result<()> {
+    fn save_state(&self, depth: ScanDepth, complete: bool) -> Result<()> {
         let previous = self.store.scan_state(&self.account)?;
         self.store.put_scan_state(
             &self.account,
@@ -374,7 +355,7 @@ impl Scanner {
                 last_scan_ms: now_ms(),
                 complete,
                 depth: Some(depth_key(depth).to_string()),
-                page_token,
+                page_token: None,
             },
         )
     }

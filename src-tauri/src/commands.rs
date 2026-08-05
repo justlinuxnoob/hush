@@ -308,7 +308,13 @@ pub async fn start_scan(
         let _ = handle.emit(EVENT_SCAN_PROGRESS, &final_progress);
 
         if let Some(state) = handle.try_state::<AppState>() {
-            *state.scan_cancel.write().await = None;
+            // Only clear the handle if it is still ours. A scan that started
+            // after this one owns it now, and clearing it would leave that scan
+            // running with a Stop button wired to nothing.
+            let mut held = state.scan_cancel.write().await;
+            if held.as_ref().is_some_and(|c| c.is_same(&cancel)) {
+                *held = None;
+            }
         }
     });
 

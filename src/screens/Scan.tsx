@@ -78,24 +78,29 @@ export default function Scan({
 
   const done = progress?.finished ?? false;
   const scanned = progress?.scanned ?? 0;
-  const estimate = progress?.total_estimate ?? 0;
-  // Gmail's total is an estimate and often well short of the truth. Once the
-  // real count passes it, quoting it would read as broken ("800 of about 501"),
-  // so the count stands alone and the bar goes indeterminate.
-  const estimateStillCredible = estimate > 0 && scanned <= estimate;
+  const total = progress?.total ?? 0;
+  const counting = (progress?.counting ?? false) && !done;
 
   if (running || done) {
     return (
       <div className="centre narrow">
         <div className="inner stack stack-6">
           <div className="stack stack-3">
-            <h1>{done ? "Finished looking" : "Looking through your mail"}</h1>
+            <h1>
+              {done
+                ? "Finished looking"
+                : counting
+                  ? "Counting your emails"
+                  : "Reading your emails"}
+            </h1>
             <p className="lede">
               {done
                 ? progress?.cancelled
                   ? "Stopped early — everything found so far has been kept."
                   : "Here's what turned up."
-                : "You can stop whenever you like. Nothing is lost if you do."}
+                : counting
+                  ? "Finding out exactly how many there are, so the next bit can tell you the truth about how far along it is."
+                  : "You can stop whenever you like. Nothing is lost if you do."}
             </p>
           </div>
 
@@ -103,25 +108,20 @@ export default function Scan({
             <div className="row">
               {!done && <span className="spinner" aria-hidden="true" />}
               <span className="tabular" style={{ fontSize: "1.375rem", fontWeight: 600 }}>
-                {scanned.toLocaleString()}
+                {counting
+                  ? (progress?.found ?? 0).toLocaleString()
+                  : scanned.toLocaleString()}
               </span>
               <span className="muted">
-                {estimateStillCredible
-                  ? `of about ${estimate.toLocaleString()} messages`
-                  : "messages read so far"}
+                {counting
+                  ? "found so far"
+                  : total > 0
+                    ? `of ${total.toLocaleString()} messages`
+                    : "messages read"}
               </span>
             </div>
 
-            {!done && (
-              <Meter value={scanned} max={estimateStillCredible ? estimate : 0} />
-            )}
-
-            {!done && !estimateStillCredible && estimate > 0 && (
-              <p className="muted small">
-                Google guessed about {estimate.toLocaleString()}, but there's
-                more than that. It keeps going until your mail runs out.
-              </p>
-            )}
+            {!done && <Meter value={scanned} max={counting ? 0 : total} />}
 
             {done && (
               <p className="muted">
@@ -147,9 +147,18 @@ export default function Scan({
                 )}
               </>
             ) : (
-              <button className="btn-secondary" onClick={stop} disabled={stopping}>
-                {stopping ? "Stopping…" : "Stop and use what's found"}
-              </button>
+              <div className="stack stack-2">
+                <div>
+                  <button className="btn-secondary" onClick={stop} disabled={stopping}>
+                    {stopping ? "Stopping…" : "Stop and use what's found"}
+                  </button>
+                </div>
+                {stopping && (
+                  <span className="muted small">
+                    Finishing the requests already in flight — a moment.
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>

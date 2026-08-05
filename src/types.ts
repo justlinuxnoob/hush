@@ -63,7 +63,12 @@ export interface Status {
 
 export interface ScanProgress {
   scanned: number;
-  total_estimate: number;
+  /** Exact count of messages in scope. 0 while still counting. */
+  total: number;
+  /** True during the counting pass, before anything has been read. */
+  counting: boolean;
+  /** How many have been found so far, while counting. */
+  found: number;
   senders_found: number;
   finished: boolean;
   cancelled: boolean;

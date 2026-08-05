@@ -58,9 +58,19 @@ impl ScanDepth {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScanProgress {
     pub scanned: u64,
-    /// Gmail's own estimate of the total. It is an estimate and is labelled as
-    /// one in the interface.
-    pub total_estimate: u64,
+    /// The exact number of messages in scope, once counting has finished.
+    ///
+    /// Zero while still counting. This is a real count of real message ids, not
+    /// Gmail's `resultSizeEstimate` — that field is an estimate in name and in
+    /// practice, and has been seen reporting thousands for a handful of
+    /// matches. Counting first costs 5 quota units per 500 messages, which is
+    /// a few seconds for an entire mailbox, and buys a progress bar that tells
+    /// the truth.
+    pub total: u64,
+    /// True while still counting, before any message has been read.
+    pub counting: bool,
+    /// How many ids have been found so far, while counting.
+    pub found: u64,
     pub senders_found: u64,
     pub finished: bool,
     pub cancelled: bool,

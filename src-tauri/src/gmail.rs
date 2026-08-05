@@ -58,6 +58,14 @@ impl Cancel {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
+    /// Whether these two handles control the same operation.
+    ///
+    /// Needed because a finishing scan must only clear the shared handle if it
+    /// is still its own — otherwise it wipes the handle belonging to a scan
+    /// that started after it, and Stop has nothing left to signal.
+    pub fn is_same(&self, other: &Cancel) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     fn check(&self) -> Result<()> {
         if self.is_cancelled() {
             Err(Error::Cancelled)
@@ -627,6 +635,17 @@ mod tests {
         let t = truncate(&s, 201);
         assert!(t.ends_with('…'));
         assert!(t.chars().count() < 200);
+    }
+
+    #[test]
+    fn a_cancel_knows_which_operation_it_belongs_to() {
+        // The bug this guards: a finishing scan cleared the shared handle
+        // unconditionally, wiping the one belonging to a scan that started
+        // after it — leaving a running scan whose Stop button did nothing.
+        let a = Cancel::new();
+        let b = Cancel::new();
+        assert!(a.is_same(&a.clone()), "a clone controls the same operation");
+        assert!(!a.is_same(&b), "two separate scans are not interchangeable");
     }
 
     #[test]
