@@ -778,6 +778,25 @@ input.mono {
   color: var(--caution);
 }
 
+/* The decision row on a long screen.
+ *
+ * A confirmation screen legitimately carries a lot — two questions, a summary,
+ * and a warning when one applies — so it can outgrow the window. What must not
+ * happen is the button being below the fold, leaving people scrolling to find
+ * out how to proceed. It sticks to the bottom instead. */
+.decide {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--paper) 0%, transparent),
+    var(--paper) calc(var(--step) * 4)
+  );
+  padding-top: calc(var(--step) * 4);
+  padding-bottom: calc(var(--step) * 2);
+  margin-top: calc(var(--step) * 2);
+}
+
 /* --- action bar ---------------------------------------------------------- */
 
 .actionbar {

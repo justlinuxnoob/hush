@@ -178,59 +178,6 @@ export default function Confirm({
           />
         </div>
 
-        {binnable > 0 && (
-          <div className="card stack stack-3">
-            <div className="stack">
-              <h3>Their old emails</h3>
-              <span className="muted small">
-                {binnable.toLocaleString()} newsletters from these senders are
-                already in your inbox. Stopping future mail does nothing about
-                those.
-                {kept > 0 && (
-                  <>
-                    {" "}
-                    Their {kept.toLocaleString()} other{" "}
-                    {kept === 1 ? "email" : "emails"} — receipts, confirmations
-                    and the like — are left alone either way.
-                  </>
-                )}{" "}
-                Only emails Hush has scanned can be moved.
-              </span>
-            </div>
-
-            {status.can_delete ? (
-              <label
-                className="row"
-                style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
-              >
-                <input
-                  type="checkbox"
-                  checked={binBacklog}
-                  onChange={(e) => setBinBacklog(e.target.checked)}
-                  style={{ marginTop: "5px", accentColor: "var(--accent)" }}
-                />
-                <span>
-                  <strong>
-                    Move their {binnable.toLocaleString()} old newsletters to Trash
-                  </strong>
-                  <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-                    Recoverable there for 30 days.
-                  </span>
-                </span>
-              </label>
-            ) : (
-              <div>
-                <button
-                  className="btn-secondary"
-                  onClick={askToBin}
-                  disabled={asking || busy}
-                >
-                  {asking ? "Waiting for your browser…" : "Allow Hush to do that"}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
 
         {flagged.length > 0 && (
           <div className="notice notice-caution stack stack-3">
@@ -268,9 +215,8 @@ export default function Confirm({
           <div className="stack">
             <h3>Stopping future emails</h3>
             <span className="muted small">
-              Unsubscribing asks the sender to stop and depends on them doing
-              it. Blocking is a filter in your own Gmail that doesn't ask
-              anyone. Together, one is polite and the other is certain.
+              Unsubscribing asks them to stop. Blocking is a filter in your own
+              Gmail that doesn't ask anyone.
             </span>
           </div>
 
@@ -285,8 +231,8 @@ export default function Confirm({
                 <strong>Unsubscribe and block — recommended</strong>
                 <span className="why">
                   {status.can_block
-                    ? "Ask them to stop, and send anything they do send to Trash anyway. This is the combination that actually works."
-                    : "Needs Google's permission for filters. Grant it below and this becomes available."}
+                    ? "Ask them to stop, and bin anything they send anyway."
+                    : "Needs Google's permission for filters — grant it below."}
                 </span>
               </span>
             </button>
@@ -299,8 +245,8 @@ export default function Confirm({
               <span>
                 <strong>Unsubscribe only</strong>
                 <span className="why">
-                  The polite version. Takes you off their list properly — but if
-                  they ignore it, or take a fortnight, the mail keeps arriving.
+                  Takes you off their list properly — but if they ignore it, the
+                  mail keeps arriving.
                 </span>
               </span>
             </button>
@@ -314,7 +260,7 @@ export default function Confirm({
                 <strong>Block only</strong>
                 <span className="why">
                   {status.can_block
-                    ? "Never contact them; just stop their mail reaching you. For senders you'd rather not tell you're leaving."
+                    ? "Say nothing to them; just stop their mail reaching you."
                     : "Needs Google's permission for filters."}
                 </span>
               </span>
@@ -333,6 +279,58 @@ export default function Confirm({
             </div>
           )}
         </div>
+
+        {binnable > 0 && (
+          <div className="card stack stack-3">
+            <div className="stack">
+              <h3>Their old emails</h3>
+              <span className="muted small">
+                Stopping future mail does nothing about the{" "}
+                {binnable.toLocaleString()} already in your inbox.
+                {kept > 0 && (
+                  <>
+                    {" "}
+                    Their {kept.toLocaleString()} other{" "}
+                    {kept === 1 ? "email" : "emails"} — receipts and the like —
+                    are left alone either way.
+                  </>
+                )}
+              </span>
+            </div>
+
+            {status.can_delete ? (
+              <label
+                className="row"
+                style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={binBacklog}
+                  onChange={(e) => setBinBacklog(e.target.checked)}
+                  style={{ marginTop: "5px", accentColor: "var(--accent)" }}
+                />
+                <span>
+                  <strong>
+                    Move their {binnable.toLocaleString()} old newsletters to Trash
+                  </strong>
+                  <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
+                    Recoverable there for 30 days. Only scanned emails can move.
+                  </span>
+                </span>
+              </label>
+            ) : (
+              <div>
+                <button
+                  className="btn-secondary"
+                  onClick={askToBin}
+                  disabled={asking || busy}
+                >
+                  {asking ? "Waiting for your browser…" : "Allow Hush to do that"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="stack stack-3">
           <button className="btn-quiet btn-small" onClick={() => setShowDetail((v) => !v)} style={{ alignSelf: "flex-start" }}>
@@ -355,7 +353,7 @@ export default function Confirm({
 
         {problem && <Notice tone="problem">{problem}</Notice>}
 
-        <div className="row">
+        <div className="row decide">
           {busy ? (
             <button className="btn-secondary" onClick={() => api.cancelRun()}>
               Stop

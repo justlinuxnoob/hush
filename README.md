@@ -21,16 +21,31 @@ permanently deleted.
    with none.
 2. Reads the **sender, subject and date** of your messages. Never the contents.
 3. Groups them by sender, showing how much each one sends and how often.
-4. Unsubscribes from the ones you tick.
-5. Optionally clears out their old newsletters, if you ask it to.
+4. For the senders you tick, it can do any combination of three things:
 
-It's a one-shot tool. Run it, tick the senders you're done with, close it. There
-is no background service, nothing is filtered or blocked, and you can uninstall
-it straight afterwards — the unsubscribes stay done.
+| | What it does | Guaranteed? |
+|---|---|---|
+| **Unsubscribe** | Sends the sender's own one-click unsubscribe — the identical request Gmail's button makes | No. It's a *request*; they might ignore it or take a fortnight |
+| **Block** | Creates a Gmail filter sending their future mail straight to Trash | **Yes.** It's a rule in your account and doesn't ask anyone |
+| **Bin the backlog** | Moves their old newsletters to Trash | Yes, for everything Hush has scanned |
 
-By default the permission it asks Google for is **read-only**, so it *cannot*
-delete, archive, label or move anything. The tidy-up below is opt-in, and even
-then only ever moves mail to Trash.
+The recommended default is **unsubscribe and block**: the first takes you off
+their list properly at source, the second means it doesn't matter if they ignore
+you. That combination is the honest answer to "I unsubscribed and I'm still
+getting mail".
+
+It's a one-shot tool. Run it, deal with your senders, close it. Nothing runs in
+the background and you can uninstall it straight afterwards — the unsubscribes,
+filters and deletions all stay done.
+
+**Nothing is ever permanently deleted**, and Hush never asks for a permission
+that would let it. Binned mail and blocked mail both go to Trash, where Gmail
+keeps it for 30 days. Filters are visible and removable under Settings → Filters
+in Gmail.
+
+By default the permission it asks Google for is **read-only**. Binning and
+blocking each need a wider one, and each is requested only at the moment you
+choose it — never up front.
 
 ## The safety mechanism
 
@@ -81,6 +96,26 @@ differently on purpose.
 Hush will not follow redirects on a one-click endpoint (RFC 8058 forbids them),
 sends no cookies, and refuses any unsubscribe URL that resolves to your own
 network rather than the public internet.
+
+## Why unsubscribing alone isn't enough
+
+Every mass-unsubscribe tool is an interface over three controls: **unsubscribe,
+block, or filter**. Tools that only do the first cannot answer the commonest
+complaint about them — *"I unsubscribed and they're still emailing me."*
+
+Unsubscribing is a request. It depends on the sender honouring it, doing so
+promptly, and not having you on four other lists under a different address. Even
+a flawless implementation can't promise the mail stops, and any tool that says
+otherwise is overstating.
+
+A Gmail filter isn't a request. It's a rule in your own account, and it works
+identically whether the sender is scrupulous, slow, or ignoring you outright.
+
+So Hush does both, and is clear about which is which. There are also senders who
+accept the one-click POST with a `200` and *then* still want you to press a
+button on their page — that violates RFC 8058, it's undetectable in advance
+because they respond identically to a compliant sender, and it's exactly why
+blocking exists.
 
 ## Clearing out the backlog
 
