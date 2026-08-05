@@ -70,6 +70,21 @@ export default function Results({
 
         {problem && <Notice tone="problem">{problem}</Notice>}
 
+        {!report.trash && (
+          <Notice tone="calm">
+            Old emails were left alone — you didn't ask for those to be binned.
+            Unsubscribing stops what arrives next; it never removes what's
+            already there.
+          </Notice>
+        )}
+
+        {report.trash && report.trash.trashed === 0 && !report.trash.simulated && (
+          <Notice tone="caution">
+            Nothing was moved to Trash. These senders had no bulk emails left to
+            bin — possibly because a previous run already did it.
+          </Notice>
+        )}
+
         {report.trash && report.trash.trashed > 0 && (
           <Notice tone={report.trash.simulated ? "accent" : "calm"}>
             {report.trash.simulated
@@ -98,20 +113,12 @@ export default function Results({
         )}
 
         {succeeded.length > 0 && (
-          <Section
-            title={`Unsubscribe sent to ${plural(succeeded.length, "sender")}`}
-            note="Their server accepted it. Most senders stop within a few days — but they don't report back, so if one keeps writing, open their page and do it by hand."
-          >
+          <Section title={`${plural(succeeded.length, "sender")} finished`}>
             {succeeded.map((o) => (
               <div key={o.address} className="result-row">
                 <span className="result-name">{o.display_name}</span>
                 <div className="spacer" />
-                <span className="badge badge-auto">Accepted</span>
-                {o.link && (
-                  <button className="btn-quiet btn-small" onClick={() => open(o)}>
-                    Open their page
-                  </button>
-                )}
+                <span className="badge badge-auto">Done</span>
               </div>
             ))}
           </Section>
@@ -119,14 +126,21 @@ export default function Results({
 
         {sent.length > 0 && (
           <Section
-            title={`${plural(sent.length, "unsubscribe email")} sent`}
-            note="Most senders act on these within a few days."
+            title={`Unsubscribe sent to ${plural(sent.length, "sender")}`}
+            note="Their server accepted it, which is as far as anything can be confirmed — nothing in email reports back that a sender actually acted. Most stop within a few days. A few accept the request and still want you to press a button on their own page; if you want to be certain, check."
           >
             {sent.map((o) => (
               <div key={o.address} className="result-row">
-                <span className="result-name">{o.display_name}</span>
+                <div className="stack" style={{ minWidth: 0 }}>
+                  <span className="result-name">{o.display_name}</span>
+                  <span className="muted small">{o.detail}</span>
+                </div>
                 <div className="spacer" />
-                <span className="badge badge-neutral">Sent</span>
+                {o.link && (
+                  <button className="btn-secondary btn-small" onClick={() => open(o)}>
+                    Check it yourself
+                  </button>
+                )}
               </div>
             ))}
           </Section>
@@ -141,21 +155,25 @@ export default function Results({
                 ? "All finished — nice work"
                 : `Finish these ${remaining} yourself`
             }
-            note="These senders only offer a link, and a link can mean anything, so Hush leaves it to you."
+            note="Some of these only offer a link, which can mean anything, so Hush won't click it blindly. Others need a short email — if no draft opened, your computer has no mail app set up, and you can just send it yourself from the address shown."
           >
             {needsYou.map((o) => {
               const isDone = done.has(o.address);
+              const byEmail = o.link?.startsWith("mailto:") ?? false;
               return (
                 <div key={o.address} className={`result-row${isDone ? " done" : ""}`}>
-                  <span className="result-name">{o.display_name}</span>
+                  <div className="stack" style={{ minWidth: 0 }}>
+                    <span className="result-name">{o.display_name}</span>
+                    <span className="muted small">{o.detail}</span>
+                  </div>
                   <div className="spacer" />
                   {!isDone && o.link && (
                     <button className="btn-secondary btn-small" onClick={() => open(o)}>
-                      Open link
+                      {byEmail ? "Open the draft" : "Open link"}
                     </button>
                   )}
                   {!isDone && !o.link && (
-                    <span className="muted small">Check your mail app</span>
+                    <span className="muted small">Nothing to open</span>
                   )}
                   <button
                     className={isDone ? "btn-quiet btn-small" : "btn-quiet btn-small"}

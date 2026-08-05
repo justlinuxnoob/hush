@@ -280,6 +280,36 @@ something does not answer**.
   turned the safety warning into wallpaper — and wallpaper is what you scroll
   past on your way to unsubscribing from your bank.
 
+## Senders that accept a one-click POST and then still want a click
+
+Found by a user opening the "check it yourself" link after the app reported
+success, and landing on a page saying "Yes, unsubscribe".
+
+RFC 8058 forbids this outright — returning a confirmation page in response to a
+one-click POST violates the spec, and Gmail treats it as a complaint. Senders do
+it anyway. There is no way to tell from the response: a correct implementation
+and a broken one both return 200 with an HTML body, and sniffing the body for a
+form would misfire on the many correct implementations that return a "you have
+been unsubscribed" page.
+
+So the app cannot detect it, and says so instead. A successful one-click now
+reports "Their server accepted it" rather than any claim of being finished, the
+link survives, and the section explains that a few senders accept the request
+and still want a button pressed. Overstating this was the actual bug: the
+interface said "accepted" and then offered a link that contradicted it.
+
+## `mailto:` handoff does nothing on a machine with no mail app
+
+Also found in real use, on Windows. The default for `mailto:` senders is to open
+a prefilled draft in the user's own mail client. Most Windows installs have no
+`mailto:` handler at all, because people use webmail — so the draft opens
+nowhere, silently, while the app claimed one was waiting.
+
+Nothing in the app can fix the missing handler. What it can do is stop depending
+on it: the outcome now carries the address and the draft link whether or not
+anything opened, and the results screen shows who to write to. Sending it by
+hand from webmail takes ten seconds once you know the address.
+
 ## Cancellation, and where it was missing
 
 Long operations that cannot be abandoned are the recurring failure in this app,

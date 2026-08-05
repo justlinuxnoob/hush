@@ -112,6 +112,24 @@ pub struct Handoff {
     pub mailto_url: String,
 }
 
+/// Progress while a run is under way.
+///
+/// A button that says "Working…" for a minute is indistinguishable from a
+/// hang — which is the same complaint that made the connect screen feel
+/// broken. Every sender handled, and every message binned, reports itself.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RunProgress {
+    /// Plain words for what is happening right now, e.g. "Unsubscribing from
+    /// Daily Deals" or "Moving old emails to Trash".
+    pub doing: String,
+    pub done: u64,
+    pub total: u64,
+    /// True once the unsubscribes are finished and the tidy-up has started, so
+    /// the interface can say which of the two it is watching.
+    pub binning: bool,
+    pub finished: bool,
+}
+
 #[derive(Debug, Default, Serialize)]
 pub struct RunReport {
     pub outcomes: Vec<Outcome>,
@@ -198,8 +216,29 @@ impl Executor {
     /// platforms looks like an attack, and the whole run is over in seconds
     /// either way.
     pub async fn run(&self, requests: &[UnsubRequest], cancel: &crate::gmail::Cancel) -> RunReport {
+        self.run_reporting(requests, cancel, |_| {}).await
+    }
+
+    /// As [`Executor::run`], but calling `on_progress` before each sender.
+    pub async fn run_reporting<F>(
+        &self,
+        requests: &[UnsubRequest],
+        cancel: &crate::gmail::Cancel,
+        mut on_progress: F,
+    ) -> RunReport
+    where
+        F: FnMut(&RunProgress),
+    {
         let mut report = RunReport::default();
-        for r in requests {
+        let total = requests.len() as u64;
+        for (index, r) in requests.iter().enumerate() {
+            on_progress(&RunProgress {
+                doing: format!("Unsubscribing from {}", r.display_name),
+                done: index as u64,
+                total,
+                binning: false,
+                finished: false,
+            });
             if cancel.is_cancelled() {
                 // Everything already done stays done and is reported; the rest
                 // simply never happened.
@@ -222,6 +261,13 @@ impl Executor {
                 }),
             }
         }
+        on_progress(&RunProgress {
+            doing: "Finishing up".to_string(),
+            done: report.outcomes.len() as u64,
+            total,
+            binning: false,
+            finished: true,
+        });
         report
     }
 
@@ -321,8 +367,8 @@ impl Executor {
                 // ignores it — their own unsubscribe page — stays to hand.
                 Ok(()) => Ok((
                     out(
-                        OutcomeStatus::Done,
-                        "Unsubscribe sent and accepted",
+                        OutcomeStatus::Sent,
+                        "Their server accepted it",
                         Some(url.clone()),
                     ),
                     None,
@@ -351,17 +397,26 @@ impl Executor {
                     .as_deref()
                     .unwrap_or("Please unsubscribe me from this list.");
                 match self.mailto_mode {
-                    MailtoMode::HandOff => Ok((
-                        out(
-                            OutcomeStatus::NeedsYou,
-                            "A ready-to-send email is waiting in your mail app",
-                            None,
-                        ),
-                        Some(Handoff {
-                            address: r.address.clone(),
-                            mailto_url: build_mailto_url(address, subject, body),
-                        }),
-                    )),
+                    MailtoMode::HandOff => {
+                        // The address goes in the outcome, and the mailto goes
+                        // in the link. On a machine with no mail app configured
+                        // — most Windows installs, since people use webmail —
+                        // opening the draft does nothing at all, silently. Then
+                        // the only thing that helps is knowing who to write to,
+                        // so the user is told regardless of whether it opened.
+                        let mailto = build_mailto_url(address, subject, body);
+                        Ok((
+                            out(
+                                OutcomeStatus::NeedsYou,
+                                &format!("Send a short email to {address}"),
+                                Some(mailto.clone()),
+                            ),
+                            Some(Handoff {
+                                address: r.address.clone(),
+                                mailto_url: mailto,
+                            }),
+                        ))
+                    }
                     MailtoMode::SendViaGmail => {
                         let gmail = self.gmail.as_ref().ok_or_else(|| {
                             Error::Setup(
@@ -549,6 +604,20 @@ pub async fn trash_messages(
     dry_run: bool,
     cancel: &crate::gmail::Cancel,
 ) -> TrashReport {
+    trash_messages_reporting(gmail, ids, dry_run, cancel, |_| {}).await
+}
+
+/// As [`trash_messages`], but reporting as it goes.
+pub async fn trash_messages_reporting<F>(
+    gmail: &Arc<GmailClient>,
+    ids: &[String],
+    dry_run: bool,
+    cancel: &crate::gmail::Cancel,
+    mut on_progress: F,
+) -> TrashReport
+where
+    F: FnMut(&RunProgress),
+{
     if dry_run {
         return TrashReport {
             trashed: ids.len() as u64,
@@ -611,6 +680,20 @@ pub async fn trash_messages(
             tasks.abort_all();
             break;
         }
+
+        let handled = report.trashed + report.failed;
+        // Every twenty is often enough to look alive without flooding the
+        // interface with events for a several-thousand-message backlog.
+        if handled % 20 == 0 || handled == ids.len() as u64 {
+            on_progress(&RunProgress {
+                doing: "Moving old emails to Trash".to_string(),
+                done: handled,
+                total: ids.len() as u64,
+                binning: true,
+                finished: false,
+            });
+        }
+
         spawn_next(&mut tasks);
     }
 

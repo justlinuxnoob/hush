@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
 import * as api from "../api";
-import { Notice, plural } from "../components/ui";
+import { Meter, Notice, plural } from "../components/ui";
 import {
   errorCode,
   errorMessage,
   type PlannedAction,
+  type RunProgress,
   type RunReport,
   type Sender,
   type Status,
@@ -40,6 +41,7 @@ export default function Confirm({
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [progress, setProgress] = useState<RunProgress | null>(null);
 
   const chosen = senders.filter((s) => addresses.includes(s.address));
   const flagged = chosen.filter((s) => s.assessment.caution);
@@ -49,6 +51,8 @@ export default function Confirm({
   const totalMail = chosen.reduce((n, s) => n + s.message_count, 0);
   const binnable = chosen.reduce((n, s) => n + s.bulk_count, 0);
   const kept = totalMail - binnable;
+
+  useEffect(() => api.onRunProgress(setProgress), []);
 
   useEffect(() => {
     api
@@ -309,7 +313,9 @@ export default function Confirm({
           <div className="spacer" />
           <button className="btn-primary" onClick={go} disabled={busy || blocked}>
             {busy
-              ? "Working…"
+              ? progress
+                ? `${progress.doing}…`
+                : "Starting…"
               : status.dry_run
                 ? "Show me what would happen"
                 : alsoDelete && binnable > 0
@@ -317,6 +323,17 @@ export default function Confirm({
                   : `Unsubscribe from ${plural(chosen.length, "sender")}`}
           </button>
         </div>
+
+        {busy && progress && progress.total > 0 && (
+          <div className="stack stack-2">
+            <Meter value={progress.done} max={progress.total} />
+            <span className="muted small tabular">
+              {progress.binning
+                ? `${progress.done.toLocaleString()} of ${progress.total.toLocaleString()} emails moved`
+                : `${progress.done} of ${progress.total} senders`}
+            </span>
+          </div>
+        )}
 
         {blocked && (
           <p className="muted small">

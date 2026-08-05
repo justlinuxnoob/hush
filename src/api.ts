@@ -15,6 +15,7 @@ import type {
   PlannedAction,
   RunReport,
   ScanDepth,
+  RunProgress,
   ScanProgress,
   Sender,
   Status,
@@ -65,6 +66,14 @@ export const setDryRun = (on: boolean) => invoke<void>("set_dry_run", { on });
 export const setMailtoMode = (mode: MailtoMode) =>
   invoke<void>("set_mailto_mode", { mode });
 export const dataLocation = () => invoke<string>("data_location");
+
+/** Follow a run in progress. Returns an unsubscribe function. */
+export function onRunProgress(handler: (p: RunProgress) => void) {
+  const pending = listen<RunProgress>("run-progress", (e) => handler(e.payload));
+  return () => {
+    void pending.then((unlisten) => unlisten());
+  };
+}
 
 /** Subscribe to scan progress. Returns an unsubscribe function. */
 export function onScanProgress(handler: (p: ScanProgress) => void) {

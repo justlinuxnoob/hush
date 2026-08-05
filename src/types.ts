@@ -70,6 +70,15 @@ export interface ScanProgress {
   note: string | null;
 }
 
+/** Progress while unsubscribes and binning are running. */
+export interface RunProgress {
+  doing: string;
+  done: number;
+  total: number;
+  binning: boolean;
+  finished: boolean;
+}
+
 export interface PlannedAction {
   address: string;
   display_name: string;

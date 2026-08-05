@@ -20,12 +20,13 @@ use crate::scan::Scanner;
 use crate::state::{AppState, Session, SETTING_ACCOUNT, SETTING_GRANTED, SETTING_SEEN_WELCOME};
 use crate::store::Store;
 use crate::unsub::{
-    trash_messages, Executor, Handoff, MailtoMode, PlannedAction, RunReport, TrashReport,
-    UnsubRequest,
+    Executor, Handoff, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest,
 };
 
 /// Emitted repeatedly while a scan runs.
 pub const EVENT_SCAN_PROGRESS: &str = "scan-progress";
+/// Emitted repeatedly while unsubscribes and binning run.
+pub const EVENT_RUN_PROGRESS: &str = "run-progress";
 
 #[derive(Debug, Serialize)]
 pub struct Status {
@@ -403,6 +404,7 @@ pub async fn plan_unsubscribe(
 /// something that rides along with a previous choice.
 #[tauri::command]
 pub async fn run_unsubscribe(
+    app: AppHandle,
     state: State<'_, AppState>,
     selection: Selection,
     delete_backlog: bool,
@@ -428,10 +430,14 @@ pub async fn run_unsubscribe(
     let cancel = Cancel::new();
     *state.run_cancel.write().await = Some(cancel.clone());
 
-    let mut report = executor.run(&requests, &cancel).await;
+    let emit = |p: &crate::unsub::RunProgress| {
+        let _ = app.emit(EVENT_RUN_PROGRESS, p);
+    };
+
+    let mut report = executor.run_reporting(&requests, &cancel, emit).await;
 
     if delete_backlog && !cancel.is_cancelled() {
-        report.trash = Some(tidy_up(&state, &account, &requests, dry_run, &cancel).await?);
+        report.trash = Some(tidy_up(&state, &account, &requests, dry_run, &cancel, &app).await?);
     }
 
     *state.run_cancel.write().await = None;
@@ -460,6 +466,7 @@ async fn tidy_up(
     requests: &[UnsubRequest],
     dry_run: bool,
     cancel: &Cancel,
+    app: &AppHandle,
 ) -> Result<TrashReport> {
     let session = state.session.read().await;
     let session = session.as_ref().ok_or(Error::Unauthorized)?;
@@ -476,7 +483,11 @@ async fn tidy_up(
         ids.extend(state.store.bulk_message_ids(account, &r.address)?);
     }
 
-    let mut report = trash_messages(&session.gmail, &ids, dry_run, cancel).await;
+    let mut report =
+        crate::unsub::trash_messages_reporting(&session.gmail, &ids, dry_run, cancel, |p| {
+            let _ = app.emit(EVENT_RUN_PROGRESS, p);
+        })
+        .await;
 
     // Check the mailbox rather than trusting our own HTTP responses. Gmail's
     // message list excludes Trash, so anything binned that still comes back
@@ -499,10 +510,20 @@ async fn tidy_up(
 /// Open each prefilled unsubscribe mail in the user's own mail app.
 ///
 /// Nothing is sent: the drafts open, and the user presses send — or does not.
+/// Open each prefilled unsubscribe mail in the user's own mail app.
+///
+/// This quietly does nothing on a machine with no mail client configured, which
+/// is most Windows installs — webmail is not a `mailto:` handler. Nothing here
+/// can fix that, so the outcome carries the address and the draft link either
+/// way, and the results screen shows both. Failing to open is not reported as
+/// an error because it is not one: there is simply nothing to open.
 fn open_handoffs(handoffs: &[Handoff]) {
     for h in handoffs {
         if let Err(e) = tauri_plugin_opener::open_url(&h.mailto_url, None::<&str>) {
-            log::warn!("couldn't open a draft for {}: {e}", h.address);
+            log::warn!(
+                "no mail app opened for {} ({e}); the address is in the results",
+                h.address
+            );
         }
     }
 }
