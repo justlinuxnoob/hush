@@ -105,7 +105,12 @@ jobs:
       # the app must not even hold a permission that allows it.
       - name: Nothing can be permanently deleted
         run: |
-          bad=$(grep -rnE 'batchDelete|messages/delete|mail\.google\.com' src-tauri/src/ || true)
+          # Comment lines are stripped first. Explaining in a doc comment which
+          # scope Hush refuses to hold is the opposite of holding it, and a
+          # guard that punishes writing that down teaches people to delete the
+          # explanation rather than keep the promise.
+          bad=$(grep -rn --include='*.rs' -vE '^\s*(//|/\*|\*)' src-tauri/src/ \
+                | grep -E 'batchDelete|messages/delete|mail\.google\.com' || true)
           if [ -n "$bad" ]; then
             echo "::error::a permanent-deletion path or full-access scope appeared."
             echo "$bad"
