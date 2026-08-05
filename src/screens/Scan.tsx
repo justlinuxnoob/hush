@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import * as api from "../api";
 import { Meter, Notice, plural } from "../components/ui";
@@ -36,37 +36,33 @@ const DEPTHS: { value: ScanDepth; title: string; why: string }[] = [
  */
 export default function Scan({
   status,
+  progress,
+  onProgress,
   onFinished,
   onSkip,
 }: {
   status: Status;
+  /** Owned by the app, so leaving this screen does not lose a running scan. */
+  progress: ScanProgress | null;
+  onProgress: (p: ScanProgress | null) => void;
   onFinished: () => void;
   onSkip: () => void;
 }) {
   const [depth, setDepth] = useState<ScanDepth>("one_year");
-  const [running, setRunning] = useState(status.scanning);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
 
-  useEffect(() => {
-    return api.onScanProgress((p) => {
-      setProgress(p);
-      if (p.finished) {
-        setRunning(false);
-        setStopping(false);
-      }
-    });
-  }, []);
+  // A scan is running if the backend says so, or if progress has arrived and
+  // has not reported itself finished. Deriving it beats a local flag that goes
+  // stale the moment this screen is unmounted and remounted.
+  const running = (status.scanning || progress !== null) && !(progress?.finished ?? false);
 
   async function start(incremental: boolean) {
     setProblem(null);
-    setProgress(null);
-    setRunning(true);
+    onProgress(null);
     try {
       await api.startScan(depth, incremental);
     } catch (e) {
-      setRunning(false);
       setProblem(errorMessage(e));
     }
   }

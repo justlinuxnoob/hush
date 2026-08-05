@@ -14,9 +14,18 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "handled", label: "Already done" },
 ];
 
-/** Senders that have been acted on and need nothing further. */
+/**
+ * Senders that need nothing further.
+ *
+ * Deliberately narrow. A sender whose unsubscribe went through but whose old
+ * mail failed to bin still has work outstanding, and hiding it because one half
+ * succeeded is how you lose track of the half that did not.
+ */
 function isHandled(s: Sender): boolean {
-  return s.outcome !== null && (s.outcome.status === "done" || s.outcome.status === "sent");
+  if (s.outcome === null) return false;
+  if (s.outcome.status !== "done" && s.outcome.status !== "sent") return false;
+  // Anything still binnable means the tidy-up did not finish its job.
+  return s.bulk_count === 0;
 }
 
 /**

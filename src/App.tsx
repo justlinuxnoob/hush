@@ -10,7 +10,13 @@ import SenderList from "./screens/SenderList";
 import Settings from "./screens/Settings";
 import Setup from "./screens/Setup";
 import Welcome from "./screens/Welcome";
-import { errorMessage, type RunReport, type Sender, type Status } from "./types";
+import {
+  errorMessage,
+  type RunReport,
+  type ScanProgress,
+  type Sender,
+  type Status,
+} from "./types";
 
 type Screen =
   | "loading"
@@ -30,6 +36,10 @@ export default function App() {
   const [chosen, setChosen] = useState<string[]>([]);
   const [report, setReport] = useState<RunReport | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // Held here rather than inside the scan screen: navigating to Settings and
+  // back used to unmount that screen and lose the run, leaving a scan that was
+  // still going with nothing showing it.
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
 
   const reloadSenders = useCallback(async () => {
     try {
@@ -51,6 +61,8 @@ export default function App() {
     },
     []
   );
+
+  useEffect(() => api.onScanProgress(setScanProgress), []);
 
   useEffect(() => {
     (async () => {
@@ -145,6 +157,8 @@ export default function App() {
       {screen === "scan" && (
         <Scan
           status={status}
+          progress={scanProgress}
+          onProgress={setScanProgress}
           onSkip={() => setScreen("list")}
           onFinished={async () => {
             await refresh();

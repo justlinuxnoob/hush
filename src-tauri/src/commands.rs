@@ -252,8 +252,13 @@ pub async fn start_scan(
     depth: ScanDepth,
     incremental: bool,
 ) -> Result<()> {
-    if state.scan_cancel.read().await.is_some() {
-        return Err(Error::Other("A scan is already running.".into()));
+    // Starting a scan while one is running stops the old one rather than
+    // refusing. Refusing left people stuck: navigate away mid-scan, come back,
+    // and the app insisted a scan was happening with nothing on screen to show
+    // it or stop it.
+    if let Some(existing) = state.scan_cancel.write().await.take() {
+        log::info!("a new scan was asked for, stopping the one already running");
+        existing.cancel();
     }
     let (email, gmail) = state.require_session().await?;
 

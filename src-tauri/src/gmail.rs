@@ -303,6 +303,12 @@ impl GmailClient {
     where
         F: Fn(&str) -> reqwest::RequestBuilder,
     {
+        // Captured for the log only; the token never reaches it.
+        let url_for_log = build("")
+            .build()
+            .map(|r| r.url().to_string())
+            .unwrap_or_default();
+
         let mut refreshed = false;
 
         for attempt in 0..MAX_RETRIES {
@@ -360,6 +366,15 @@ impl GmailClient {
                 return Err(Error::Setup(friendly_forbidden(&body)));
             }
 
+            // The status and Google's own words go to the log. The user gets a
+            // plain sentence; whoever is debugging gets the fact. Keeping only
+            // the friendly version is what made this failure unexplainable.
+            log::warn!(
+                "unexpected {} from {}: {}",
+                status.as_u16(),
+                redact_url(url_for_log),
+                truncate(&body, 400)
+            );
             return Err(Error::UnexpectedResponse(format!(
                 "{} {}",
                 status.as_u16(),
@@ -404,6 +419,15 @@ fn parse_retry_after(response: &reqwest::Response) -> Option<Duration> {
         .parse::<u64>()
         .ok()
         .map(Duration::from_secs)
+}
+
+/// Message ids are not secret, but a log is something people paste in public,
+/// so the path is kept and anything that looks like a query string is not.
+fn redact_url(url: String) -> String {
+    match url.split_once('?') {
+        Some((path, _)) => format!("{path}?…"),
+        None => url,
+    }
 }
 
 fn truncate(s: &str, n: usize) -> String {

@@ -204,7 +204,7 @@ p {
   margin-top: calc(var(--step) * 6);
 }
 .stack-8 > * + * {
-  margin-top: calc(var(--step) * 8);
+  margin-top: calc(var(--step) * 6);
 }
 
 .row {
@@ -220,12 +220,25 @@ p {
 }
 
 /* A centred column for the calm, one-thing-at-a-time screens. */
+/*
+ * A generous but not absurd top margin. This used to be 56px of dead space
+ * before anything, which pushed short screens below the fold and made the whole
+ * app feel like it needed scrolling to do anything.
+ */
 .centre {
   flex: 1;
   overflow-y: auto;
   display: flex;
   justify-content: center;
-  padding: calc(var(--step) * 14) calc(var(--step) * 8) calc(var(--step) * 12);
+  align-items: flex-start;
+  padding: calc(var(--step) * 8) calc(var(--step) * 8) calc(var(--step) * 10);
+}
+
+/* On a short window, trim it further rather than hiding the first heading. */
+@media (max-height: 780px) {
+  .centre {
+    padding-top: calc(var(--step) * 5);
+  }
 }
 
 .centre > .inner {
@@ -953,7 +966,7 @@ input.mono {
 /* --- results ------------------------------------------------------------- */
 
 .result-group + .result-group {
-  margin-top: calc(var(--step) * 8);
+  margin-top: calc(var(--step) * 6);
 }
 
 .result-row {
