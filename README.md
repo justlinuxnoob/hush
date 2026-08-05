@@ -230,7 +230,13 @@ is required — no Node, no Rust, no Python.
 |---|---|
 | Windows | `.msi` |
 | macOS | `.dmg` — universal, runs on both Apple silicon and Intel |
-| Linux | `.deb` (Debian, Ubuntu), `.rpm` (Fedora, RHEL, openSUSE), or `.AppImage` (anything) |
+| Linux | `.deb` (Debian 12+, Ubuntu 23.04+), `.rpm` (Fedora, RHEL, openSUSE), or `.AppImage` |
+
+On Linux the app needs **WebKitGTK 4.1**, which is what the system provides for
+rendering. Ubuntu 22.04 and older ship 4.0 only, so the `.deb` will refuse to
+install there with an unmet dependency on `libwebkit2gtk-4.1-0` — that is the
+distro being too old, not the package being broken. Debian 12, Ubuntu 23.04 and
+anything newer are fine.
 
 ### macOS: the app is unsigned
 
