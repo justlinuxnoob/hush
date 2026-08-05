@@ -72,10 +72,20 @@ export default function Results({
           </Notice>
         )}
 
-        {report.trash && report.trash.trashed === 0 && (
+        {report.trash && report.trash.trashed === 0 && report.trash.failed > 0 && (
+          <Notice tone="problem">
+            Nothing could be moved to Trash. {report.trash.problem ?? "Google refused the request."}{" "}
+            {report.trash.failed} {report.trash.failed === 1 ? "email was" : "emails were"} left
+            exactly where they are.
+          </Notice>
+        )}
+
+        {report.trash && report.trash.trashed === 0 && report.trash.failed === 0 && (
           <Notice tone="caution">
-            Nothing was moved to Trash. These senders had no bulk emails left to
-            bin — possibly because a previous run already did it.
+            There was nothing to move. Hush can only bin emails it has scanned,
+            so this means either a previous run already cleared them, or the
+            scan never reached this sender's mail — try scanning again, and let
+            it finish.
           </Notice>
         )}
 
@@ -83,7 +93,9 @@ export default function Results({
           <Notice tone="calm">
             {`${plural(report.trash.trashed, "old email")} moved to your Gmail Trash — recoverable there for 30 days.`}
             {report.trash.failed > 0 &&
-              ` ${report.trash.failed} couldn't be moved and were left alone.`}
+              ` ${report.trash.failed} couldn't be moved${
+                report.trash.problem ? ` — ${report.trash.problem}` : ""
+              }.`}
             {report.trash.still_present === 0 &&
               " Checked afterwards — they're gone from your inbox."}
             {report.trash.still_present !== null &&

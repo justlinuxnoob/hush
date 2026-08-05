@@ -147,6 +147,20 @@ export default function Settings({
             {where && (
               <input type="text" readOnly value={where} className="mono" aria-label="Where the file is" />
             )}
+            <p className="muted small">
+              Alongside it is <span className="mono">hush.log</span>, a plain
+              record of what Hush tried and what came back. If something doesn't
+              work, that file says why — it's the useful thing to attach to a
+              bug report. It holds sender addresses, never message contents.
+            </p>
+            <div>
+              <button
+                className="btn-secondary"
+                onClick={() => guard(() => api.openDataFolder())}
+              >
+                Open the folder
+              </button>
+            </div>
           </div>
         </div>
 

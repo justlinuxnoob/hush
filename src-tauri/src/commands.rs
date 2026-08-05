@@ -479,7 +479,21 @@ async fn tidy_up(
 
     let mut ids = Vec::new();
     for r in requests {
-        ids.extend(state.store.bulk_message_ids(account, &r.address)?);
+        let for_sender = state.store.bulk_message_ids(account, &r.address)?;
+        log::info!(
+            "tidy-up: {} has {} scanned bulk messages to bin",
+            r.address,
+            for_sender.len()
+        );
+        ids.extend(for_sender);
+    }
+
+    if ids.is_empty() {
+        log::warn!(
+            "tidy-up found nothing to bin across {} sender(s) — either a previous \
+             run already cleared them, or the scan never reached their mail",
+            requests.len()
+        );
     }
 
     let mut report = crate::unsub::trash_messages_reporting(&session.gmail, &ids, cancel, |p| {
@@ -490,6 +504,17 @@ async fn tidy_up(
     // Check the mailbox rather than trusting our own HTTP responses. Gmail's
     // message list excludes Trash, so anything binned that still comes back
     // under a search for that sender did not actually move.
+    log::info!(
+        "tidy-up finished: {} moved, {} failed{}",
+        report.trashed,
+        report.failed,
+        report
+            .problem
+            .as_deref()
+            .map(|p| format!(" — first problem: {p}"))
+            .unwrap_or_default()
+    );
+
     if !cancel.is_cancelled() {
         let senders: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
         report.still_present =
@@ -554,6 +579,20 @@ pub async fn open_link(url: String) -> Result<()> {
 #[tauri::command]
 pub async fn set_mailto_mode(state: State<'_, AppState>, mode: MailtoMode) -> Result<()> {
     state.set_mailto_mode(mode)
+}
+
+/// Open the folder holding the log and the database.
+///
+/// Exists because "it didn't work" is unanswerable without knowing what Google
+/// actually said, and until now nothing recorded that.
+#[tauri::command]
+pub async fn open_data_folder(app: AppHandle) -> Result<()> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| Error::Storage(format!("couldn't find Hush's folder: {e}")))?;
+    tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::Other(format!("Couldn't open that folder: {e}")))
 }
 
 /// Where the local database lives, so the user can see it or delete it.

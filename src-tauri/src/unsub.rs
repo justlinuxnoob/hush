@@ -561,6 +561,12 @@ pub struct TrashReport {
     /// asked afterwards. Zero means the move is confirmed, not merely reported.
     /// `None` means the check could not be run.
     pub still_present: Option<u64>,
+    /// Why the first failure failed, in the user's words.
+    ///
+    /// Without this, a run where every request was refused looked identical to
+    /// a run where there was nothing to do — and "nothing happened" with no
+    /// reason is the least actionable thing an app can say.
+    pub problem: Option<String>,
 }
 
 /// Ask Gmail whether the mail we binned is actually gone.
@@ -682,8 +688,11 @@ where
             }
             // One message that will not move should not strand the rest; the
             // counts stay honest either way.
-            Ok((_, Err(e))) => {
-                log::warn!("couldn't move a message to Trash: {e}");
+            Ok((id, Err(e))) => {
+                log::warn!("couldn't move message {id} to Trash: {e}");
+                if report.problem.is_none() {
+                    report.problem = Some(e.to_string());
+                }
                 report.failed += 1;
             }
             Err(e) => {

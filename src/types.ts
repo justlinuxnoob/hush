@@ -90,6 +90,8 @@ export interface TrashReport {
   failed: number;
   /** How many binned messages Gmail still showed afterwards. null = not checked. */
   still_present: number | null;
+  /** Why the first failure failed, if anything failed. */
+  problem: string | null;
 }
 
 export interface RunReport {

@@ -20,6 +20,7 @@ pub mod commands;
 pub mod error;
 pub mod gmail;
 pub mod heuristics;
+pub mod logging;
 pub mod model;
 pub mod parse;
 pub mod ratelimit;
@@ -37,6 +38,11 @@ pub fn run() {
         // the user's real browser; the web layer cannot call it directly.
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Before anything else, so a failure during setup is recorded too.
+            if let Ok(dir) = app.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&dir);
+                logging::init(&dir);
+            }
             let store = commands::open_store(app.handle())?;
             app.manage(state::AppState::new(store));
             Ok(())
@@ -61,6 +67,7 @@ pub fn run() {
             commands::open_link,
             commands::set_mailto_mode,
             commands::data_location,
+            commands::open_data_folder,
             commands::erase_everything,
         ])
         .run(tauri::generate_context!())

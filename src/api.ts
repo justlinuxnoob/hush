@@ -73,6 +73,7 @@ export const openLink = (url: string) => invoke<void>("open_link", { url });
 export const setMailtoMode = (mode: MailtoMode) =>
   invoke<void>("set_mailto_mode", { mode });
 export const dataLocation = () => invoke<string>("data_location");
+export const openDataFolder = () => invoke<void>("open_data_folder");
 
 /** Follow a run in progress. Returns an unsubscribe function. */
 export function onRunProgress(handler: (p: RunProgress) => void) {

@@ -8,7 +8,7 @@ second opinion.
 
 | | |
 |---|---|
-| Rust tests | 150 passing (134 unit, 16 against a mocked Gmail API) |
+| Rust tests | 153 passing (137 unit, 16 against a mocked Gmail API) |
 | Clippy | clean with `-D warnings` |
 | Frontend | type-checks and builds |
 | App launches | **yes, on Linux** — built, launched, every screen exercised |
@@ -306,6 +306,28 @@ confirmation screen and Trash-rather-than-permanent-delete are all unchanged.
 **The lesson is not "do not build dry-run modes."** It is that a default which
 makes an app silently do nothing is indistinguishable from a broken app, and
 the person who chose the default is the last one who will notice.
+
+## There was no logger
+
+The most consequential omission in the project. Every failure path called
+`log::warn!` — a message that could not be moved to Trash, a mail app that never
+opened, a fetch that was skipped — and no logger was ever installed, so all of
+it went to nowhere.
+
+The effect was that "it doesn't delete my emails" could not be answered by
+anyone, including the person whose machine it was happening on. Google's actual
+refusal was discarded at the point it arrived. Several hours went into guessing
+at causes that a single log line would have settled.
+
+There is now a file logger writing to `hush.log` beside the database, a button
+in Settings to open that folder, and — more importantly — the reason for a
+failure is carried back into the interface rather than only into the log. A
+tidy-up that moved nothing now says whether that is because there was nothing to
+move or because every request was refused, and quotes the refusal.
+
+**The lesson**: an app that cannot explain its own failures cannot be debugged
+by its users, and its users are the only people who will ever encounter most of
+its failures.
 
 ## A rescan reconciles rather than only adding
 

@@ -184,6 +184,7 @@ function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean):
           trashed: binned,
           failed: 0,
           still_present: 0,
+          problem: null,
         }
       : null,
   };
