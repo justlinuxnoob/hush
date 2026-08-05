@@ -307,6 +307,27 @@ confirmation screen and Trash-rather-than-permanent-delete are all unchanged.
 makes an app silently do nothing is indistinguishable from a broken app, and
 the person who chose the default is the last one who will notice.
 
+## Double protection had to be the default, not a tick-box
+
+Blocking shipped in 0.4.0 as a checkbox beneath the action choice. The first
+question asked about it was "can we do both — POST the unsubscribe *and* block?
+double protection?" — which is precisely what had shipped the day before.
+
+A feature nobody can find is a feature that does not exist. The confirmation
+screen now asks two plain questions instead of one muddled one:
+
+- **Stopping future emails** — unsubscribe and block *(recommended, and the
+  default)*, unsubscribe only, or block only.
+- **Their old emails** — move the backlog to Trash, or leave it.
+
+They are genuinely independent, and conflating them was the mistake. Wanting a
+sender's eight hundred old issues gone says nothing about whether you want to
+keep receiving them, and asking a sender to stop says nothing about whether you
+trust them to.
+
+The action button spells out the result rather than naming a mode:
+*"Unsubscribe and block 1 sender, bin 490 emails."*
+
 ## Unsubscribing alone was never going to be enough
 
 The complaint that produced this feature: "I don't want unhappy users saying

@@ -37,9 +37,18 @@ export default function Confirm({
   const [plan, setPlan] = useState<PlannedAction[] | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [acceptedFlagged, setAcceptedFlagged] = useState(false);
-  const [action, setAction] = useState<"unsubscribe" | "bin" | "both">("unsubscribe");
+  // Two independent questions: what happens to future mail, and what happens
+  // to the pile already sitting there. Double protection is the default,
+  // because asking a sender to stop and making sure they do are different
+  // things and most people want both.
+  // Defaults to the recommended pairing, but only when blocking is actually
+  // available — otherwise the button would promise something it cannot do.
+  const [future, setFuture] = useState<"unsubscribe" | "block" | "both">(
+    status.can_block ? "both" : "unsubscribe"
+  );
+  const [binBacklog, setBinBacklog] = useState(false);
   const [asking, setAsking] = useState(false);
-  const [alsoBlock, setAlsoBlock] = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [progress, setProgress] = useState<RunProgress | null>(null);
@@ -55,6 +64,15 @@ export default function Confirm({
 
   useEffect(() => api.onRunProgress(setProgress), []);
 
+  // Granting the permission mid-flow should move the selection to the option it
+  // just unlocked, rather than leaving a recommendation the user cannot pick.
+  useEffect(() => {
+    if (status.can_block && future === "unsubscribe") setFuture("both");
+    if (!status.can_block && future !== "unsubscribe") setFuture("unsubscribe");
+    // Only when the permission changes; not when the user picks something else.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.can_block]);
+
   useEffect(() => {
     api
       .planUnsubscribe(addresses)
@@ -69,9 +87,9 @@ export default function Confirm({
       onDone(
         await api.runUnsubscribe(
           addresses,
-          action !== "bin",
-          action !== "unsubscribe",
-          alsoBlock
+          future !== "block",
+          binBacklog,
+          future !== "unsubscribe"
         )
       );
     } catch (e) {
@@ -94,7 +112,7 @@ export default function Confirm({
       const s = await api.connect(status.can_send, true, status.can_block);
       onStatusChange(s);
       // They asked for it, so preselect the thing they asked for.
-      if (s.can_delete) setAction("both");
+      if (s.can_delete) setBinBacklog(true);
     } catch (e) {
       if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
     } finally {
@@ -110,7 +128,7 @@ export default function Confirm({
     try {
       const s = await api.connect(status.can_send, status.can_delete, true);
       onStatusChange(s);
-      if (s.can_block) setAlsoBlock(true);
+      if (s.can_block) setFuture("both");
     } catch (e) {
       if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
     } finally {
@@ -160,83 +178,59 @@ export default function Confirm({
           />
         </div>
 
-        {!status.can_delete && binnable > 0 && (
+        {binnable > 0 && (
           <div className="card stack stack-3">
             <div className="stack">
-              <strong>Want their old emails gone too?</strong>
+              <h3>Their old emails</h3>
               <span className="muted small">
-                {binnable.toLocaleString()} newsletters from these senders could
-                move to your Gmail Trash, recoverable there for 30 days.
+                {binnable.toLocaleString()} newsletters from these senders are
+                already in your inbox. Stopping future mail does nothing about
+                those.
                 {kept > 0 && (
                   <>
                     {" "}
                     Their {kept.toLocaleString()} other{" "}
                     {kept === 1 ? "email" : "emails"} — receipts, confirmations
-                    and the like — would be left alone.
+                    and the like — are left alone either way.
                   </>
                 )}{" "}
-                Only emails Hush has scanned can be moved. Google grants this
-                separately, so your browser will open once.
+                Only emails Hush has scanned can be moved.
               </span>
             </div>
-            <div>
-              <button
-                className="btn-secondary"
-                onClick={askToBin}
-                disabled={asking || busy}
+
+            {status.can_delete ? (
+              <label
+                className="row"
+                style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
               >
-                {asking ? "Waiting for your browser…" : "Allow this"}
-              </button>
-            </div>
+                <input
+                  type="checkbox"
+                  checked={binBacklog}
+                  onChange={(e) => setBinBacklog(e.target.checked)}
+                  style={{ marginTop: "5px", accentColor: "var(--accent)" }}
+                />
+                <span>
+                  <strong>
+                    Move their {binnable.toLocaleString()} old newsletters to Trash
+                  </strong>
+                  <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
+                    Recoverable there for 30 days.
+                  </span>
+                </span>
+              </label>
+            ) : (
+              <div>
+                <button
+                  className="btn-secondary"
+                  onClick={askToBin}
+                  disabled={asking || busy}
+                >
+                  {asking ? "Waiting for your browser…" : "Allow Hush to do that"}
+                </button>
+              </div>
+            )}
           </div>
         )}
-
-        <div className="card stack stack-3">
-          <div className="stack">
-            <strong>Make sure they actually stop</strong>
-            <span className="muted small">
-              Unsubscribing asks a sender to stop, and most do within a few
-              days — but it depends entirely on them. A Gmail filter doesn't
-              ask: anything they send from now on goes straight to your Trash,
-              whether they honour the unsubscribe or not.
-            </span>
-          </div>
-
-          {status.can_block ? (
-            <label
-              className="row"
-              style={{ marginBottom: 0, cursor: "pointer", alignItems: "flex-start" }}
-            >
-              <input
-                type="checkbox"
-                checked={alsoBlock}
-                onChange={(e) => setAlsoBlock(e.target.checked)}
-                style={{ marginTop: "5px", accentColor: "var(--accent)" }}
-              />
-              <span>
-                <strong>
-                  Also block future emails from{" "}
-                  {plural(chosen.length, "this sender", "these senders")}
-                </strong>
-                <span className="muted small" style={{ display: "block", fontWeight: 400 }}>
-                  Creates a Gmail filter you can see and remove at any time under
-                  Settings → Filters in Gmail. Nothing is permanently deleted —
-                  it goes to Trash, same as everything else here.
-                </span>
-              </span>
-            </label>
-          ) : (
-            <div>
-              <button
-                className="btn-secondary"
-                onClick={askToBlock}
-                disabled={asking || busy}
-              >
-                {asking ? "Waiting for your browser…" : "Let Hush do that"}
-              </button>
-            </div>
-          )}
-        </div>
 
         {flagged.length > 0 && (
           <div className="notice notice-caution stack stack-3">
@@ -270,54 +264,74 @@ export default function Confirm({
           </div>
         )}
 
-        <div className="card stack stack-3">
-          <h3>What should Hush do?</h3>
+        <div className="card stack stack-4">
+          <div className="stack">
+            <h3>Stopping future emails</h3>
+            <span className="muted small">
+              Unsubscribing asks the sender to stop and depends on them doing
+              it. Blocking is a filter in your own Gmail that doesn't ask
+              anyone. Together, one is polite and the other is certain.
+            </span>
+          </div>
+
           <div className="choices">
             <button
               className="choice"
-              aria-pressed={action === "unsubscribe"}
+              aria-pressed={future === "both"}
+              disabled={busy || !status.can_block}
+              onClick={() => setFuture("both")}
+            >
+              <span>
+                <strong>Unsubscribe and block — recommended</strong>
+                <span className="why">
+                  {status.can_block
+                    ? "Ask them to stop, and send anything they do send to Trash anyway. This is the combination that actually works."
+                    : "Needs Google's permission for filters. Grant it below and this becomes available."}
+                </span>
+              </span>
+            </button>
+            <button
+              className="choice"
+              aria-pressed={future === "unsubscribe"}
               disabled={busy}
-              onClick={() => setAction("unsubscribe")}
+              onClick={() => setFuture("unsubscribe")}
             >
               <span>
                 <strong>Unsubscribe only</strong>
                 <span className="why">
-                  Stop what arrives next. Everything already in your inbox stays
-                  exactly where it is.
+                  The polite version. Takes you off their list properly — but if
+                  they ignore it, or take a fortnight, the mail keeps arriving.
                 </span>
               </span>
             </button>
             <button
               className="choice"
-              aria-pressed={action === "bin"}
-              disabled={busy || !status.can_delete}
-              onClick={() => setAction("bin")}
+              aria-pressed={future === "block"}
+              disabled={busy || !status.can_block}
+              onClick={() => setFuture("block")}
             >
               <span>
-                <strong>Bin their old emails only</strong>
+                <strong>Block only</strong>
                 <span className="why">
-                  {status.can_delete
-                    ? `Move ${binnable.toLocaleString()} old newsletters to Trash and leave the subscription alone — for senders you still want to hear from.`
-                    : "Needs Google's permission to move mail. Allow it below first."}
-                </span>
-              </span>
-            </button>
-            <button
-              className="choice"
-              aria-pressed={action === "both"}
-              disabled={busy || !status.can_delete}
-              onClick={() => setAction("both")}
-            >
-              <span>
-                <strong>Both</strong>
-                <span className="why">
-                  {status.can_delete
-                    ? `Unsubscribe, and move their ${binnable.toLocaleString()} old newsletters to Trash.`
-                    : "Needs Google's permission to move mail. Allow it below first."}
+                  {status.can_block
+                    ? "Never contact them; just stop their mail reaching you. For senders you'd rather not tell you're leaving."
+                    : "Needs Google's permission for filters."}
                 </span>
               </span>
             </button>
           </div>
+
+          {!status.can_block && (
+            <div>
+              <button
+                className="btn-secondary"
+                onClick={askToBlock}
+                disabled={asking || busy}
+              >
+                {asking ? "Waiting for your browser…" : "Allow Hush to block senders"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="stack stack-3">
@@ -357,11 +371,18 @@ export default function Confirm({
               ? progress
                 ? `${progress.doing}…`
                 : "Starting…"
-              : action === "bin"
-                ? `Bin ${plural(binnable, "email")}`
-                : action === "both"
-                  ? `Unsubscribe and bin ${plural(binnable, "email")}`
-                  : `Unsubscribe from ${plural(chosen.length, "sender")}`}
+              : [
+                  future === "block"
+                    ? `Block ${plural(chosen.length, "sender")}`
+                    : future === "both"
+                      ? `Unsubscribe and block ${plural(chosen.length, "sender")}`
+                      : `Unsubscribe from ${plural(chosen.length, "sender")}`,
+                  binBacklog && binnable > 0
+                    ? `bin ${plural(binnable, "email")}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
           </button>
         </div>
 

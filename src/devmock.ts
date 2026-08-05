@@ -142,7 +142,12 @@ function plan(addresses: string[]): PlannedAction[] {
     }));
 }
 
-function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean): RunReport {
+function run(
+  addresses: string[],
+  unsubscribe: boolean,
+  deleteBacklog: boolean,
+  blockFuture: boolean
+): RunReport {
   const outcomes: Outcome[] = (unsubscribe ? selectable(addresses) : [])
     .map((s) => ({
       address: s.address,
@@ -180,7 +185,9 @@ function run(addresses: string[], unsubscribe: boolean, deleteBacklog: boolean):
   return {
     outcomes,
     handoffs: [],
-    blocked: null,
+    blocked: blockFuture
+      ? { blocked: selectable(addresses).length, failed: 0, problem: null }
+      : null,
     trash: deleteBacklog
       ? {
           trashed: binned,
@@ -238,7 +245,8 @@ const handlers: Record<string, (a: Args) => unknown> = {
     run(
       (a.selection as { addresses: string[] }).addresses,
       a.unsubscribe !== false,
-      Boolean(a.deleteBacklog)
+      Boolean(a.deleteBacklog),
+      Boolean(a.blockFuture)
     ),
   start_scan: () => {
     // Pretend to walk a mailbox so the progress screen can be looked at.
