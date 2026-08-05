@@ -195,7 +195,7 @@ is required — no Node, no Rust, no Python.
 |---|---|
 | Windows | `.msi` |
 | macOS | `.dmg` — universal, runs on both Apple silicon and Intel |
-| Linux | `.deb` or `.AppImage` |
+| Linux | `.deb` (Debian, Ubuntu), `.rpm` (Fedora, RHEL, openSUSE), or `.AppImage` (anything) |
 
 ### macOS: the app is unsigned
 
