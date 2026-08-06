@@ -536,6 +536,46 @@ never having been asked to bin, and binning is opt-in and off by default. So the
 ordinary path, unsubscribing and nothing else, marked nothing as done, ever. The
 list never shrank and "Already done" stayed empty.
 
+## Five messages a second, and nothing can change that
+
+`messages.get` costs 20 quota units and the per-user ceiling is 100 units a
+second. That is five messages a second, full stop — no amount of concurrency,
+batching or cleverness moves it. Measured against a real account: **12,823
+messages, about 43 minutes.**
+
+Batching was the obvious idea and it is worthless here. Gmail's `/batch`
+endpoint bundles up to 100 sub-requests into one round trip, but each inner
+request still costs its own quota, and we are quota-bound rather than
+latency-bound. It would save nothing.
+
+What *is* ours to choose is the order those 43 minutes happen in.
+`label:^unsub` is an undocumented internal Gmail label for mail with an
+unsubscribe option, and on that same account it covered 5,527 of the 12,823.
+Reading that portion first means most senders surface early, and "stop and use
+what's found" stops costing much.
+
+It is an ordering hint and nothing more, because the probe said so. Sampling
+the *excluded* side found one message in forty that carried the header anyway —
+so excluding on it would silently hide senders, which is the one failure this
+app cannot have. Everything still gets read; the header parse is still the only
+thing that decides. If Google drops the operator the first pass errors, gets
+logged, and the second pass covers the mailbox exactly as before. There is a
+test for that.
+
+The general lesson: **an undocumented shortcut is fine as an optimisation and
+never as a gate.** The question to ask is not "does it work" but "what happens
+to the user when it is wrong", and here the answer had to be "nothing".
+
+## Guessing would have cost a week
+
+`tests/live_probe.rs` is read-only and asks Google things no mock can answer.
+It was written because the alternative to twenty minutes of probing was
+implementing a batch endpoint that would have saved zero seconds, or trusting a
+blog post about `label:^unsub` and shipping a scanner that hides senders.
+
+Same shape as the 559ms checkbox: the fix took one line, finding it took ten
+minutes of measurement, and every plausible guess pointed somewhere else.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

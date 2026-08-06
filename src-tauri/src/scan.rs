@@ -93,31 +93,76 @@ impl Scanner {
         };
         on_progress(&progress);
 
-        // --- pass one: count -------------------------------------------------
+        // --- pass one: count, likeliest first --------------------------------
+        //
+        // Reading a message costs 20 quota units against a ceiling of 100 a
+        // second, so Hush reads five messages a second and cannot read them
+        // faster. On the mailbox this was measured against — 12,823 messages —
+        // that is 43 minutes to read everything.
+        //
+        // The order those 43 minutes happen in is ours to choose, though.
+        // `label:^unsub` is an undocumented internal Gmail label for mail with
+        // an unsubscribe option, and it covered 5,527 of those 12,823. Reading
+        // that portion first means most senders are found in the first stretch
+        // instead of dribbling out across the whole scan, and "stop and use
+        // what's found" stops costing the user much.
+        //
+        // It is strictly an ordering hint and nothing else. Probing it against
+        // a real account found it *misses* header-carrying mail — one in forty
+        // sampled — so using it to exclude anything would silently hide
+        // senders. Everything still gets read; the header parse is still the
+        // only thing that decides. If Google drops the operator tomorrow the
+        // query matches nothing, the second pass covers the mailbox exactly as
+        // before, and the only loss is the ordering.
         let mut seen: Vec<String> = Vec::new();
-        let mut page_token: Option<String> = None;
-        loop {
-            if cancel.is_cancelled() {
-                return Ok(self.stop_early(progress, depth, true, None));
-            }
-            let page = match self
-                .gmail
-                .list_messages(&query, page_token.as_deref(), LIST_PAGE_SIZE, &cancel)
-                .await
-            {
-                Ok(p) => p,
-                Err(Error::Cancelled) => return Ok(self.stop_early(progress, depth, true, None)),
-                Err(e) => return Err(e),
-            };
+        for (i, q) in [
+            format!("{query} label:^unsub"),
+            format!("{query} -label:^unsub"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let mut page_token: Option<String> = None;
+            loop {
+                if cancel.is_cancelled() {
+                    return Ok(self.stop_early(progress, depth, true, None));
+                }
+                let page = match self
+                    .gmail
+                    .list_messages(q, page_token.as_deref(), LIST_PAGE_SIZE, &cancel)
+                    .await
+                {
+                    Ok(p) => p,
+                    // A first pass that fails is an ordering optimisation
+                    // failing, not a scan failing. Fall through to the second,
+                    // which is the whole mailbox minus a query that matched
+                    // nothing.
+                    Err(Error::Cancelled) => {
+                        return Ok(self.stop_early(progress, depth, true, None))
+                    }
+                    Err(e) if i == 0 => {
+                        log::warn!("couldn't order the scan by likelihood: {e}");
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                };
 
-            seen.extend(page.ids);
-            progress.found = seen.len() as u64;
-            on_progress(&progress);
+                seen.extend(page.ids);
+                progress.found = seen.len() as u64;
+                on_progress(&progress);
 
-            page_token = page.next_page_token;
-            if page_token.is_none() {
-                break;
+                page_token = page.next_page_token;
+                if page_token.is_none() {
+                    break;
+                }
             }
+        }
+
+        // Two queries can overlap if Gmail re-labels something between them.
+        // A duplicate id would be read twice and counted twice.
+        {
+            let mut has = std::collections::HashSet::with_capacity(seen.len());
+            seen.retain(|id| has.insert(id.clone()));
         }
 
         // --- pass two: read --------------------------------------------------

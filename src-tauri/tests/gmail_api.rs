@@ -580,7 +580,7 @@ async fn a_rescan_drops_mail_that_has_left_the_mailbox() {
             "messages": [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}],
             "resultSizeEstimate": 3
         })))
-        .up_to_n_times(1)
+        .up_to_n_times(2)
         .mount_as_scoped(&server)
         .await;
 
@@ -956,5 +956,113 @@ async fn nothing_is_ours_once_the_label_is_gone() {
         hush_lib::filters::remove(&gmail, "f-mine", false, &Cancel::new())
             .await
             .is_err()
+    );
+}
+
+#[tokio::test]
+async fn the_likely_bulk_mail_is_read_first_and_never_read_twice() {
+    // Reading costs 20 quota units against a ceiling of 100 a second, so the
+    // order of a 43-minute scan is the only thing available to optimise.
+    // `label:^unsub` picks out likely bulk mail, and goes first.
+    //
+    // It is an ordering hint only. Probing a real account found it misses
+    // header-carrying mail, so excluding on it would hide senders — the second
+    // pass has to cover the rest, and an id in both must be read once.
+    let server = MockServer::start().await;
+    mount_profile(&server).await;
+    mount_message_endpoint(&server, true).await;
+
+    let seen_queries = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let record = seen_queries.clone();
+
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .respond_with(move |req: &Request| {
+            let q = req
+                .url
+                .query_pairs()
+                .find(|(k, _)| k == "q")
+                .map(|(_, v)| v.to_string())
+                .unwrap_or_default();
+            record.lock().unwrap().push(q.clone());
+            // m2 appears in both halves, as it would if Gmail re-labelled it
+            // between the two calls.
+            let ids = if q.contains("-label:^unsub") {
+                json!([{"id": "m2"}, {"id": "m3"}])
+            } else {
+                json!([{"id": "m1"}, {"id": "m2"}])
+            };
+            ResponseTemplate::new(200).set_body_json(json!({ "messages": ids }))
+        })
+        .mount(&server)
+        .await;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let progress = Scanner::new(
+        client(&server, FakeTokens::new(false)),
+        store.clone(),
+        ACCOUNT.into(),
+    )
+    .full_scan(ScanDepth::Everything, Cancel::new(), |_| {})
+    .await
+    .unwrap();
+
+    let queries = seen_queries.lock().unwrap().clone();
+    assert_eq!(queries.len(), 2, "one pass each, no more");
+    assert!(
+        queries[0].contains("label:^unsub") && !queries[0].contains("-label:^unsub"),
+        "the likely-bulk pass goes first, got {:?}",
+        queries
+    );
+    assert!(
+        queries[1].contains("-label:^unsub"),
+        "and the remainder second, got {:?}",
+        queries
+    );
+
+    assert_eq!(progress.total, 3, "m2 is counted once, not twice");
+    assert_eq!(store.message_count(ACCOUNT).unwrap(), 3);
+}
+
+#[tokio::test]
+async fn a_scan_still_covers_the_mailbox_if_the_ordering_hint_breaks() {
+    // `label:^unsub` is undocumented. If Google drops it the first pass fails,
+    // and the scan must carry on rather than dying with it.
+    let server = MockServer::start().await;
+    mount_profile(&server).await;
+    mount_message_endpoint(&server, true).await;
+
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(query_param(
+            "q",
+            "-in:sent -in:drafts -in:chats -label:Hush label:^unsub",
+        ))
+        .respond_with(ResponseTemplate::new(400).set_body_string("bad operator"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]
+        })))
+        .mount(&server)
+        .await;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let progress = Scanner::new(
+        client(&server, FakeTokens::new(false)),
+        store.clone(),
+        ACCOUNT.into(),
+    )
+    .full_scan(ScanDepth::Everything, Cancel::new(), |_| {})
+    .await
+    .unwrap();
+
+    assert!(progress.finished, "a broken hint is not a broken scan");
+    assert_eq!(
+        store.message_count(ACCOUNT).unwrap(),
+        3,
+        "nothing was missed"
     );
 }

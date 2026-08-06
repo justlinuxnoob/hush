@@ -120,6 +120,23 @@ export default function SenderList({
 
   const selectable = visible.filter((s) => !s.never_touch);
 
+  // Everything scales against the busiest sender on screen, not against the
+  // busiest overall — otherwise filtering to a handful leaves every bar a
+  // stub and the comparison stops working.
+  const busiest = useMemo(
+    () => Math.max(1, ...visible.map((s) => s.message_count)),
+    [visible]
+  );
+
+  const tally = useMemo(
+    () => ({
+      senders: visible.length,
+      emails: visible.reduce((n, s) => n + s.message_count, 0),
+      automatic: visible.filter((s) => s.method.kind === "one_click").length,
+    }),
+    [visible]
+  );
+
   const toggle = useCallback((address: string, on: boolean) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -195,14 +212,32 @@ export default function SenderList({
       )}
 
       <div className="senders">
-        <div className="row" style={{ padding: "calc(var(--step) * 3) calc(var(--step) * 3)" }}>
-          <span className="muted small">
-            {plural(visible.length, "sender")}
-            {handledCount > 0 && filter !== "handled" && (
-              <> · {handledCount} already done, hidden</>
-            )}
-          </span>
-          <div className="spacer" />
+        <div className="tally">
+          <div className="tally-item">
+            <span className="tally-value">{formatCount(tally.senders)}</span>
+            <span className="tally-label">
+              {tally.senders === 1 ? "sender" : "senders"}
+            </span>
+          </div>
+          <div className="tally-item">
+            <span className="tally-value">{formatCount(tally.emails)}</span>
+            <span className="tally-label">emails between them</span>
+          </div>
+          <div className="tally-item">
+            <span className="tally-value">{formatCount(tally.automatic)}</span>
+            <span className="tally-label">stop automatically</span>
+          </div>
+          {handledCount > 0 && filter !== "handled" && (
+            <div className="tally-item">
+              <span className="tally-value" style={{ color: "var(--ink-soft)" }}>
+                {formatCount(handledCount)}
+              </span>
+              <span className="tally-label">done already, hidden</span>
+            </div>
+          )}
+        </div>
+
+        <div className="row" style={{ padding: "0 calc(var(--step) * 3) calc(var(--step) * 3)" }}>
           <button
             className="btn-quiet btn-small"
             onClick={() => selectMany((s) => s.frequency.includes("month") || s.frequency.includes("year"))}
@@ -248,6 +283,7 @@ export default function SenderList({
             key={s.address}
             sender={s}
             selected={selected.has(s.address)}
+            share={s.message_count / busiest}
             open={expanded === s.address}
             subjects={expanded === s.address ? subjects : null}
             onToggle={toggle}
@@ -300,6 +336,7 @@ export default function SenderList({
 const Row = memo(function Row({
   sender: s,
   selected,
+  share,
   open,
   subjects,
   onToggle,
@@ -308,6 +345,8 @@ const Row = memo(function Row({
 }: {
   sender: Sender;
   selected: boolean;
+  /** This sender's volume as a fraction of the busiest one on screen. */
+  share: number;
   open: boolean;
   subjects: SenderMessage[] | null;
   onToggle: (address: string, on: boolean) => void;
@@ -363,6 +402,13 @@ const Row = memo(function Row({
               {s.outcome && s.outcome.status !== "failed" && (
                 <span className="badge badge-neutral">Already handled</span>
               )}
+            </div>
+
+            <div className="volume" aria-hidden="true">
+              <div
+                className="volume-fill"
+                style={{ width: `${Math.max(2, share * 100)}%` }}
+              />
             </div>
 
             {s.assessment.caution && (

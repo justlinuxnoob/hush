@@ -1107,3 +1107,75 @@ input.mono {
   background-clip: padding-box;
   border: 3px solid var(--paper);
 }
+
+/* --- magnitude in the sender list ---------------------------------------- */
+
+/*
+ * How much each sender sends, as a bar under their name.
+ *
+ * The list is the screen people spend all their time on, and as plain text it
+ * could only be read one row at a time. A single-hue magnitude encoding makes
+ * "who is worst" answerable at a glance, which is the actual question.
+ *
+ * Deliberately one hue, not a palette: this is magnitude, not identity. The
+ * caution variant is a reserved status colour and never carries meaning alone —
+ * those rows also show a "Worth a look" badge with its own dot and text.
+ *
+ * Colour was computed, not eyeballed. Both hues clear 3:1 against their
+ * surface in light and dark, and separate at ΔE 32+ under protanopia against a
+ * floor of 12.
+ */
+.volume {
+  height: 3px;
+  margin-top: calc(var(--step) * 1.5);
+  background: var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.volume-fill {
+  height: 100%;
+  /* Anchored to the baseline with a rounded data-end, so a short bar still
+     reads as a bar rather than a dot. */
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  min-width: 2px;
+  transition: width 200ms ease;
+}
+
+.is-caution .volume-fill {
+  background: var(--caution);
+}
+
+.is-protected .volume-fill,
+.sender[data-handled="true"] .volume-fill {
+  background: var(--ink-faint);
+}
+
+/* --- the summary strip above the list ------------------------------------ */
+
+.tally {
+  display: flex;
+  gap: calc(var(--step) * 8);
+  padding: calc(var(--step) * 3) calc(var(--step) * 3) calc(var(--step) * 4);
+}
+
+.tally-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tally-value {
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.tally-label {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.01em;
+}
