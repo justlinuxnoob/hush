@@ -299,7 +299,7 @@ function Shell({ children, onClose }: { children: React.ReactNode; onClose: () =
             Close
           </button>
         </div>
-        <span className="muted small" style={{ marginTop: "calc(var(--step) * -4)" }}>
+        <span className="muted small">
           Read from your Gmail settings every time you open this. Hush keeps no
           list of its own, so this is always what your account actually says.
         </span>

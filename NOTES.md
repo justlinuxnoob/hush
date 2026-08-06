@@ -714,6 +714,42 @@ and merging on it would fuse two different senders.
 
 There is no setting for either of these. Neither is a decision worth offering.
 
+## Designing an app you have never seen
+
+Every design decision in this project up to 0.9.2 was made without looking at
+it. The browser pane's screenshot call timed out every time, so what got
+measured instead was `getBoundingClientRect`, DOM node counts and computed
+styles — real numbers, and completely blind to how any of it looked.
+
+Installing a headless Chromium and taking actual screenshots found, in about
+five minutes, three things that months of reading the CSS had not:
+
+**The sticky bars were see-through.** Both used a gradient fading to
+`--paper`. That reads beautifully in a mock-up and fails the moment anything
+scrolls past: the transparent end lets content through, so Settings rendered a
+paragraph *behind its own title* and the confirm screen rendered its next
+option underneath its own buttons. Solid backgrounds now.
+
+Fixing that exposed a second layer of the same bug. `top: 0` sticks an element
+below the scroll container's *padding*, so there is a band above the bar where
+content still scrolls past in the open. A solid background on the element does
+not cover it; a tall `::before` does.
+
+**Hidden buttons were reserving space.** Each row's actions are revealed on
+hover, at `opacity: 0` — but still in the layout, holding about forty pixels
+on every single row whether shown or not. That, more than padding, is why an
+800-pixel window showed three senders. Absolutely positioned now, and rows
+went from ~150px to ~100px.
+
+**The disabled primary button was invisible in dark mode.** 42% opacity on a
+dark accent against a dark surface, on the one control people look at to find
+out what to do next.
+
+Not one of these is subtle. All three were invisible from the code, and all
+three were obvious in a screenshot. The lesson is not "the CSS was wrong" — it
+is that a measurement can only answer the question you thought to ask, and
+looking answers questions you did not.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically
