@@ -35,6 +35,18 @@ pub const SETTING_BLOCK_ACTION: &str = "block_action";
 /// The same, for what a tidy-up does to old mail — `archive` or `trash`.
 pub const SETTING_BACKLOG_ACTION: &str = "backlog_action";
 
+/// When the current connection was granted, in epoch milliseconds.
+///
+/// Google expires refresh tokens for projects in Testing mode after seven
+/// days. That is not a bug and cannot be avoided without publishing the app for
+/// verification, which is the thing this design exists to avoid — but it *can*
+/// stop being a surprise. Recording when the clock started is what lets the app
+/// say "four days left" instead of letting someone discover it mid-run.
+pub const SETTING_CONNECTED_MS: &str = "connected_at_ms";
+
+/// How long Google leaves a Testing-mode connection alive.
+pub const TESTING_TOKEN_DAYS: i64 = 7;
+
 /// A snapshot of the session, held by value so no lock travels with it.
 pub struct SessionParts {
     pub gmail: Arc<GmailClient>,

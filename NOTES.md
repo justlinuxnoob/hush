@@ -750,6 +750,41 @@ three were obvious in a screenshot. The lesson is not "the CSS was wrong" — it
 is that a measurement can only answer the question you thought to ask, and
 looking answers questions you did not.
 
+## Gaps found by being asked "is all that thought through?"
+
+Three, and the honest scoring is one out of three.
+
+**Checking the connection still works on launch** — already there. `resume_session`
+calls `getProfile` before claiming to be connected, because a silent failure
+later is worse than an honest reconnect prompt now.
+
+**A countdown on the seven-day expiry** — not there, and a real gap. Google
+expires Testing-mode refresh tokens after seven days. That is unavoidable
+without publishing the app for verification, which is the thing this whole
+design exists to avoid. But unavoidable is not the same as surprising. The
+connection date is recorded now, the last two days show a warning in the top
+bar where people already look, and Settings always states it. Rounded down, so
+"1 day left" never quietly means twenty minutes, and floored at zero, because a
+countdown reading "-4 days" is nonsense.
+
+**Two copies at once** — nothing stopped it. Two windows on one database, both
+scanning, doubling an API quota that already caps a large mailbox at forty
+minutes. Clicking a launcher twice is not a request for a second app. The
+existing window comes forward instead.
+
+## Setup should not read like a warning
+
+"One catch, up front… about five minutes of clicking through Google's website."
+Every word true, and the framing is an apology. Someone reading it decides the
+app is hard before seeing it.
+
+The bigger fix was making the claim untrue. Google's clients page has a
+**Download JSON** button holding both credentials, and Hush was asking people
+to open that file, find two fields among eight, and hand-copy each into the
+right box — three chances to get it wrong, one of which the app's own error
+message already anticipated ("it's easy to paste one into the other's box").
+Either box now accepts the whole file and fills in both.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

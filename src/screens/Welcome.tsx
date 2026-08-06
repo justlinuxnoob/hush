@@ -53,12 +53,12 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
         </div>
 
         <div className="panel stack stack-2">
-          <h3>One catch, up front</h3>
+          <h3>How the setup works</h3>
           <p className="muted">
-            To keep everything on your own computer, Hush uses your own Google
-            connection rather than one of ours. Setting that up takes about five
-            minutes of clicking through Google's website, once. We'll walk you
-            through every step.
+            Because there's no Hush server, you connect Hush to Gmail directly
+            rather than through us. That means clicking through a few pages on
+            Google's site once — Hush opens each one for you, tells you which
+            button to press, and you paste one file back in at the end.
           </p>
         </div>
 
@@ -66,7 +66,7 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
           <button className="btn-primary" onClick={onNext} autoFocus>
             Get started
           </button>
-          <span className="muted small">Takes about five minutes</span>
+          <span className="muted small">A couple of minutes, once</span>
         </div>
       </div>
     </div>

@@ -273,7 +273,8 @@ exact pages. The short version:
    publishing status as **Testing** and add your own address as a test user.
 5. Create an OAuth client of type **Desktop app** on the
    [clients page](https://console.cloud.google.com/auth/clients).
-6. Paste the Client ID and secret into Hush.
+6. Press **Download JSON** on the client you just made, and paste the whole
+   file into either box in Hush — it fills in both.
 
 ### Why "Testing" mode
 
@@ -420,9 +421,10 @@ them in 2019 over it
 
 Hush runs on your computer and talks to Google directly. There is no Hush
 server to send anything to, no account to create, and no terms of service that
-can change next year. The trade-off is real and stated up front: you spend about
-five minutes making your own Google credentials, once. That five minutes is what
-buys the guarantee.
+can change next year. The trade-off is real and stated up front: you click through a few pages on
+Google's site once to make your own credentials. Hush opens each page for you
+and names the button to press, and the last step is pasting in the file Google
+gives you. A couple of minutes, once — and that is what buys the guarantee.
 
 ## Questions people actually ask
 

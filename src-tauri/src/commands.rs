@@ -20,7 +20,7 @@ use crate::model::{Outcome, ScanDepth, ScanProgress, Sender};
 use crate::scan::Scanner;
 use crate::state::{
     AppState, Session, SETTING_ACCOUNT, SETTING_BACKLOG_ACTION, SETTING_BLOCK_ACTION,
-    SETTING_GRANTED, SETTING_SEEN_WELCOME,
+    SETTING_CONNECTED_MS, SETTING_GRANTED, SETTING_SEEN_WELCOME,
 };
 use crate::store::Store;
 use crate::unsub::{
@@ -58,6 +58,12 @@ pub struct Status {
     pub block_action: BlockAction,
     /// The same, for what happens to old mail.
     pub backlog_action: BacklogAction,
+    /// Whole days before Google expires this connection, or `None` when it is
+    /// not known — an older install that connected before this was recorded.
+    ///
+    /// Zero means today. Negative is impossible here: an expired connection
+    /// fails `resume_session` and shows as disconnected instead.
+    pub days_left: Option<i64>,
 }
 
 #[tauri::command]
@@ -110,7 +116,29 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
             .as_deref()
             .map(BacklogAction::parse)
             .unwrap_or_default(),
+        days_left: if session.is_some() {
+            days_until_expiry(&state)?
+        } else {
+            None
+        },
     })
+}
+
+/// Whole days left before Google's seven-day Testing-mode limit runs out.
+fn days_until_expiry(state: &AppState) -> Result<Option<i64>> {
+    let Some(started) = state
+        .store
+        .get_setting(SETTING_CONNECTED_MS)?
+        .and_then(|v| v.parse::<i64>().ok())
+    else {
+        return Ok(None);
+    };
+    const DAY_MS: i64 = 86_400_000;
+    let elapsed = crate::model::now_ms().saturating_sub(started);
+    // Rounded down, so "1 day left" never means "expires in twenty minutes".
+    Ok(Some(
+        (crate::state::TESTING_TOKEN_DAYS - elapsed / DAY_MS).max(0),
+    ))
 }
 
 #[tauri::command]
@@ -196,6 +224,9 @@ pub async fn connect(
     // Remembered so a relaunch does not march the user back through Google's
     // consent page for permissions they have already given.
     state.store.set_setting(SETTING_GRANTED, &granted)?;
+    state
+        .store
+        .set_setting(SETTING_CONNECTED_MS, &crate::model::now_ms().to_string())?;
 
     *state.session.write().await = Some(Session {
         email,
@@ -1250,5 +1281,61 @@ mod state_machine_tests {
             );
             assert!(store.senders(account).unwrap().is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+    use crate::state::{SETTING_CONNECTED_MS, TESTING_TOKEN_DAYS};
+
+    const DAY: i64 = 86_400_000;
+
+    fn state_connected_days_ago(days: i64) -> AppState {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .set_setting(
+                SETTING_CONNECTED_MS,
+                &(crate::model::now_ms() - days * DAY).to_string(),
+            )
+            .unwrap();
+        AppState::new(store)
+    }
+
+    #[test]
+    fn a_fresh_connection_has_the_full_run() {
+        let state = state_connected_days_ago(0);
+        assert_eq!(days_until_expiry(&state).unwrap(), Some(TESTING_TOKEN_DAYS));
+    }
+
+    #[test]
+    fn the_count_goes_down_by_whole_days() {
+        // Rounded down, so "1 day left" never quietly means twenty minutes.
+        assert_eq!(
+            days_until_expiry(&state_connected_days_ago(6)).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            days_until_expiry(&state_connected_days_ago(3)).unwrap(),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn it_never_goes_negative() {
+        // An expired connection fails resume_session and shows as
+        // disconnected; a countdown reading "-4 days" would be nonsense.
+        assert_eq!(
+            days_until_expiry(&state_connected_days_ago(30)).unwrap(),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn an_older_install_that_never_recorded_it_says_nothing() {
+        // Better than guessing a date and being wrong about when someone's
+        // connection dies.
+        let state = AppState::new(Store::open_in_memory().unwrap());
+        assert_eq!(days_until_expiry(&state).unwrap(), None);
     }
 }

@@ -115,6 +115,18 @@ export default function Settings({
                 {formatCount(status.sender_count)} senders you can unsubscribe from.
               </span>
             )}
+            {status.connected && status.days_left !== null && (
+              <span className="muted small">
+                {status.days_left > 0
+                  ? `This connection lasts ${status.days_left} more ${
+                      status.days_left === 1 ? "day" : "days"
+                    }.`
+                  : "This connection runs out today."}{" "}
+                Google expires them after seven days while your project is in
+                Testing mode — that's Google's rule, not ours. Reconnecting
+                takes one trip to the browser.
+              </span>
+            )}
             {status.token_storage === "memory" && (
               <Notice tone="caution">
                 This computer has no working password store, so you'll need to

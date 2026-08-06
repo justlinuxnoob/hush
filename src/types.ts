@@ -73,6 +73,8 @@ export interface Status {
   /** How the user blocked last time. Preselects the choice; never replaces it. */
   block_action: BlockAction;
   backlog_action: BacklogAction;
+  /** Days before Google expires the connection. null when unknown. */
+  days_left: number | null;
 }
 
 export interface ScanProgress {

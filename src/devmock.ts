@@ -31,6 +31,7 @@ let status: Status = {
   has_credentials: true,
   block_action: "archive",
   backlog_action: "archive",
+  days_left: 2,
   can_send: false,
   can_delete: false,
   can_block: false,

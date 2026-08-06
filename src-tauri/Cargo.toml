@@ -1,6 +1,6 @@
 [package]
 name = "hush"
-version = "0.9.2"
+version = "0.9.3"
 description = "Quietly unsubscribe from bulk email"
 authors = ["Hush contributors"]
 license = "MIT"
@@ -37,6 +37,7 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 log = { version = "0.4", features = ["std"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+tauri-plugin-single-instance = "2.4.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "test-util"] }

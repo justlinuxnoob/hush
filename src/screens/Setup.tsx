@@ -24,6 +24,7 @@ export default function Setup({
   const [step, setStep] = useState(0);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [fromFile, setFromFile] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -36,6 +37,29 @@ export default function Setup({
     } catch (e) {
       setProblem(errorMessage(e));
     }
+  }
+
+  /**
+   * Take whatever was pasted, in whatever form Google handed it over.
+   *
+   * Google's clients page offers a **Download JSON** button, and that file
+   * holds both values. Making someone open it, find two fields among eight and
+   * hand-copy each into the right box is three chances to get it wrong — and
+   * the app's own copy already admitted the most common one, pasting each into
+   * the other's box.
+   *
+   * So either box accepts the whole file. Paste it anywhere and both fill in.
+   */
+  function accept(value: string, fallback: (v: string) => void) {
+    const creds = parseGoogleJson(value);
+    if (creds) {
+      setClientId(creds.id);
+      setClientSecret(creds.secret);
+      setFromFile(true);
+      return;
+    }
+    setFromFile(false);
+    fallback(value);
   }
 
   async function save() {
@@ -216,6 +240,12 @@ export default function Setup({
                 />
 
                 <div className="stack stack-4" style={{ marginTop: "calc(var(--step) * 4)" }}>
+                  {fromFile && (
+                    <Notice tone="calm">
+                      Both boxes filled in from what you pasted. Nothing else to
+                      copy.
+                    </Notice>
+                  )}
                   <div>
                     <label htmlFor="cid">Client ID</label>
                     <input
@@ -226,7 +256,7 @@ export default function Setup({
                       autoComplete="off"
                       placeholder="not-a-real-example-000000.apps.googleusercontent.com"
                       value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
+                      onChange={(e) => accept(e.target.value, setClientId)}
                     />
                   </div>
                   <div>
@@ -239,11 +269,17 @@ export default function Setup({
                       autoComplete="off"
                       placeholder="GOCSPX-…"
                       value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
+                      onChange={(e) => accept(e.target.value, setClientSecret)}
                     />
                   </div>
                   <p className="muted small">
-                    These two are stored on this computer only. Google treats
+                    Shortcut: Google's clients page has a{" "}
+                    <strong style={{ color: "var(--ink)" }}>Download JSON</strong>{" "}
+                    button. Open that file, copy all of it, and paste it into
+                    either box — both fill in by themselves.
+                  </p>
+                  <p className="muted small">
+                    Both are stored on this computer only. Google treats
                     them as public information for desktop apps like this one —
                     they don't give anyone access to your mail on their own.
                   </p>
@@ -279,6 +315,29 @@ export default function Setup({
       </div>
     </div>
   );
+}
+
+/**
+ * Pull the two values out of Google's downloaded client file.
+ *
+ * The shape is `{"installed": {...}}` for a Desktop app and `{"web": {...}}`
+ * for the other type — accepting both means someone who picked the wrong client
+ * type gets a real error from Google later rather than a confusing one here.
+ * Anything that is not that file returns null and is treated as ordinary typing.
+ */
+export function parseGoogleJson(text: string): { id: string; secret: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const inner = parsed.installed ?? parsed.web ?? parsed;
+    const id = typeof inner.client_id === "string" ? inner.client_id.trim() : "";
+    const secret =
+      typeof inner.client_secret === "string" ? inner.client_secret.trim() : "";
+    return id && secret ? { id, secret } : null;
+  } catch {
+    return null;
+  }
 }
 
 function Panel({ title, body }: { title: string; body: React.ReactNode }) {

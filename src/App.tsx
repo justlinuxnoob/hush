@@ -110,6 +110,24 @@ export default function App() {
           <Wordmark />
           <div className="spacer" />
           {status.email && <span className="muted small">{status.email}</span>}
+          {/* Google expires Testing-mode connections after seven days. It is
+              not avoidable, but it should never be a surprise — so the last
+              two days say so where the user already looks. */}
+          {status.connected &&
+            status.days_left !== null &&
+            status.days_left <= 2 && (
+              <button
+                className="badge badge-caution"
+                title="Google expires connections for projects in Testing mode after seven days."
+                onClick={() => setScreen("connect")}
+              >
+                {status.days_left === 0
+                  ? "Connection ends today — reconnect"
+                  : status.days_left === 1
+                    ? "1 day left — reconnect"
+                    : `${status.days_left} days left — reconnect`}
+              </button>
+            )}
           {!status.connected && screen !== "settings" && (
             <button className="btn-secondary btn-small" onClick={() => setScreen("connect")}>
               Reconnect
