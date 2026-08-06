@@ -576,6 +576,74 @@ blog post about `label:^unsub` and shipping a scanner that hides senders.
 Same shape as the 559ms checkbox: the fix took one line, finding it took ten
 minutes of measurement, and every plausible guess pointed somewhere else.
 
+## What 26,000 emails actually costs
+
+"the app seemed laggy when i fetched 26k emails." Everything measured before
+that point used a few hundred senders. So: build a mailbox that size and time
+the things the interface waits on.
+
+Store, at 26,000 messages / 1,000 senders (debug build, so release is several
+times quicker):
+
+| | |
+|---|---|
+| `senders()` | 263ms |
+| `known_ids()` | 34ms |
+| `message_count()` | 7ms |
+| `subjects_for_sender()` | 0.16ms |
+| `bulk_message_ids()` | 0.07ms |
+
+At 100,000 messages `senders()` is 811ms. Worth watching, not the problem.
+
+Interface, at 1,507 senders — **31,709 DOM nodes**, 552ms to tick a checkbox,
+89ms per keystroke in the search box. That is the lag, and it is not memory:
+the JS heap was 55MB and the database is 16MB for the user's real 26,000
+messages, about 615 bytes each. Nothing is downloaded but headers; there was
+never anything to trim there.
+
+Rendering is now windowed at sixty rows, extended as the list is scrolled.
+31,709 nodes becomes 1,324, ticking goes 552ms to 11ms, and the heap drops to
+18MB. Everything that must be *correct* — the tally, the search, "pick the
+automatic ones" — still runs over every matching sender. Only the rendering is
+windowed, which is the distinction that keeps it honest.
+
+## Two bugs found only by scrolling to the bottom
+
+The first window implementation used an `IntersectionObserver` on a sentinel
+row. It never fired — not with the default root, and not with the scroll
+container passed explicitly. Constructing one by hand in the page confirmed
+zero callbacks with the sentinel 30 pixels below the fold. Replaced with
+arithmetic on `scrollTop`, which cannot be ambiguous. WebKitGTK is the runtime
+on Linux and it is not the engine to be clever in.
+
+The second was self-inflicted: calling the check once on mount, so a list that
+happened to start near its bottom revealed a window, which changed the
+callback's identity, which re-ran the effect, which checked again. A loop that
+renders every row at once — precisely the thing being avoided. There is no
+mount-time check now, and the "Show more" button is the guaranteed path.
+
+## The freeze
+
+Asked to look for ways to hang the app, and there was one.
+
+`tidy_up` and `block_senders` both took a read guard on the session and held it
+across the whole operation — minutes, for a few thousand messages. Tokio's
+`RwLock` is write-preferring, so:
+
+1. A run starts and holds the read guard.
+2. The user clicks Reconnect. `connect` queues for the write lock.
+3. Every reader after that queues behind the writer — including `status`,
+   which the interface polls.
+4. The window stops repainting until the run finishes.
+
+Fixed with `session_parts()`, which copies out the client handle and the three
+permission flags and drops the guard. There is a test that reproduces the
+starvation and one that asserts `session_parts` leaves no guard alive.
+
+The rule, written down because it will come up again: **nothing that awaits the
+network may hold a lock the interface needs.** Take what you need, drop the
+guard, then go and do the slow thing.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

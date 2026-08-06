@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../api";
 import { Checkbox, Notice, formatCount, formatDate, plural } from "../components/ui";
@@ -10,6 +10,21 @@ import {
 } from "../types";
 
 type Filter = "all" | "automatic" | "manual" | "flagged" | "handled";
+
+/**
+ * How many rows are put in the document at once.
+ *
+ * A big old mailbox produces well over a thousand senders, and rendering them
+ * all built 31,709 DOM nodes — for a list showing eight at a time. WebKit takes
+ * that badly: 552ms to tick a checkbox, 89ms per keystroke in the search box.
+ *
+ * Rows are added as the list is scrolled instead. The list is sorted
+ * busiest-first and that is where the work is, so almost nobody reaches the
+ * end. Everything that has to be *correct* — the counts, the bulk selection
+ * helpers, the search — still runs over every matching sender, not just the
+ * rendered ones. Only the rendering is windowed.
+ */
+const WINDOW = 60;
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "Not done yet" },
@@ -60,6 +75,7 @@ export default function SenderList({
   const [filter, setFilter] = useState<Filter>("all");
   const [problem, setProblem] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [limit, setLimit] = useState(WINDOW);
   // Fetched when a row is opened rather than bundled into every sender: the
   // list holds a handful of samples, this holds the lot.
   const [subjects, setSubjects] = useState<SenderMessage[] | null>(null);
@@ -118,6 +134,16 @@ export default function SenderList({
     });
   }, [senders, query, filter]);
 
+  // Searching or filtering produces a different list, so the window starts
+  // again — otherwise a search that matches one sender at position 900 would
+  // find nothing on screen.
+  useEffect(() => setLimit(WINDOW), [query, filter, senders]);
+
+  const shown = useMemo(() => visible.slice(0, limit), [visible, limit]);
+  const more = visible.length - shown.length;
+
+  // Deliberately over `visible`, never `shown`. "Pick the automatic ones" means
+  // all of them, not the sixty that happen to be in the document.
   const selectable = visible.filter((s) => !s.never_touch);
 
   // Everything scales against the busiest sender on screen, not against the
@@ -278,7 +304,7 @@ export default function SenderList({
           </div>
         )}
 
-        {visible.map((s) => (
+        {shown.map((s) => (
           <Row
             key={s.address}
             sender={s}
@@ -291,6 +317,13 @@ export default function SenderList({
             onProtect={protectSender}
           />
         ))}
+
+        {more > 0 && (
+          <MoreRows
+            remaining={more}
+            onReveal={() => setLimit((n) => n + WINDOW)}
+          />
+        )}
       </div>
 
       <div className="actionbar">
@@ -333,6 +366,71 @@ export default function SenderList({
  * actually short-circuits; passing `selected` as the Set would defeat it,
  * because a new Set is a new object every time.
  */
+/**
+ * The end of the window. Seeing it means the user has scrolled to the bottom of
+ * what is rendered, which is the signal to render more.
+ *
+ * The button is not decoration — an observer that never fires, because the list
+ * is in a container it cannot see or the user is tabbing rather than scrolling,
+ * would otherwise strand them. It is the fallback that makes the observer safe
+ * to rely on.
+ */
+/** The nearest ancestor that scrolls, or null for the viewport. */
+function scrollParent(node: HTMLElement): HTMLElement | null {
+  for (let el = node.parentElement; el; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return el;
+  }
+  return null;
+}
+
+function MoreRows({
+  remaining,
+  onReveal,
+}: {
+  remaining: number;
+  onReveal: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const scroller = ref.current && scrollParent(ref.current);
+    if (!scroller) return;
+
+    // A plain scroll listener rather than an IntersectionObserver.
+    //
+    // The observer was tried first and never fired — not with the default
+    // root, and not with the scroll container passed explicitly either;
+    // constructing one by hand in the page confirmed zero callbacks while the
+    // sentinel sat 30px below the fold. Rather than work out whether that is a
+    // WebKit bug, a clipping subtlety, or something about how the container is
+    // laid out, this uses arithmetic that cannot be wrong. WebKitGTK is the
+    // runtime on Linux and it is not the engine to be clever in.
+    const check = () => {
+      const room = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      if (room < 600) onReveal();
+    };
+    scroller.addEventListener("scroll", check, { passive: true });
+    // Deliberately no check() on mount. Revealing rows changes `onReveal`'s
+    // identity, which re-runs this effect, which would check again — and if
+    // the list happened to start near its bottom that is a loop that reveals
+    // every row at once, which is the thing being avoided.
+    return () => scroller.removeEventListener("scroll", check);
+  }, [onReveal]);
+
+  return (
+    <div
+      ref={ref}
+      className="row"
+      style={{ justifyContent: "center", padding: "calc(var(--step) * 4)" }}
+    >
+      <button className="btn-quiet btn-small" onClick={onReveal}>
+        Show more · {formatCount(remaining)} still below
+      </button>
+    </div>
+  );
+}
+
 const Row = memo(function Row({
   sender: s,
   selected,

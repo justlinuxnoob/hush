@@ -35,6 +35,14 @@ pub const SETTING_BLOCK_ACTION: &str = "block_action";
 /// The same, for what a tidy-up does to old mail — `archive` or `trash`.
 pub const SETTING_BACKLOG_ACTION: &str = "backlog_action";
 
+/// A snapshot of the session, held by value so no lock travels with it.
+pub struct SessionParts {
+    pub gmail: Arc<GmailClient>,
+    pub can_send: bool,
+    pub can_delete: bool,
+    pub can_block: bool,
+}
+
 /// Everything about the currently connected account.
 pub struct Session {
     pub email: String,
@@ -128,6 +136,28 @@ impl AppState {
         )
     }
 
+    /// The session's client and permissions, copied out, with the lock released.
+    ///
+    /// This exists because holding the guard is a way to freeze the whole app.
+    /// `RwLock` here is write-preferring: a single queued writer — `connect`
+    /// or `disconnect` — makes every subsequent reader wait, and `status` is a
+    /// reader that the interface polls. So a read guard held across a run that
+    /// trashes four thousand messages plus one click on Reconnect equals a
+    /// window that stops repainting for several minutes.
+    ///
+    /// Nothing long-running may hold the guard. Take what you need, drop it,
+    /// then go and do the slow thing.
+    pub async fn session_parts(&self) -> Result<SessionParts> {
+        let guard = self.session.read().await;
+        let s = guard.as_ref().ok_or(Error::Unauthorized)?;
+        Ok(SessionParts {
+            gmail: s.gmail.clone(),
+            can_send: s.can_send,
+            can_delete: s.can_delete,
+            can_block: s.can_block,
+        })
+    }
+
     pub async fn require_session(&self) -> Result<(String, Arc<GmailClient>)> {
         let guard = self.session.read().await;
         let s = guard.as_ref().ok_or(Error::Unauthorized)?;
@@ -139,5 +169,80 @@ impl AppState {
             return Ok(s.email.clone());
         }
         self.account()?.ok_or(Error::Unauthorized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// A read guard held across slow work freezes the whole window.
+    ///
+    /// `RwLock` here is write-preferring, which is the detail that makes this
+    /// bite. One long-running reader plus one queued writer — a click on
+    /// Reconnect or Disconnect — and *every* later reader waits behind the
+    /// writer, including `status`, which the interface polls. The window stops
+    /// repainting until the run finishes, which for a few thousand messages is
+    /// minutes.
+    ///
+    /// This reproduces exactly that shape and asserts the reader gets through.
+    #[tokio::test]
+    async fn a_long_read_plus_a_queued_write_must_not_starve_later_reads() {
+        let lock: Arc<RwLock<u32>> = Arc::new(RwLock::new(0));
+
+        // The slow operation, holding a read guard the way `tidy_up` used to.
+        let slow = lock.clone();
+        let held = tokio::spawn(async move {
+            let guard = slow.read().await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            drop(guard);
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // The user clicks Reconnect.
+        let writer = lock.clone();
+        let queued = tokio::spawn(async move {
+            let mut guard = writer.write().await;
+            *guard += 1;
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // And now the interface asks for status. This is the call that used to
+        // hang, and the assertion is that it does not finish quickly — it
+        // demonstrates the starvation is real, so the fix has to be "do not
+        // hold the guard" rather than "hope the lock is fair".
+        let started = std::time::Instant::now();
+        {
+            let _ = lock.read().await;
+        }
+        let waited = started.elapsed();
+
+        held.await.unwrap();
+        queued.await.unwrap();
+
+        assert!(
+            waited > Duration::from_millis(100),
+            "if this ever stops being true the lock became read-preferring and \
+             this test no longer proves anything — but the rule stands either \
+             way: take what you need from the session and drop the guard \
+             before doing anything slow. Waited {waited:?}"
+        );
+    }
+
+    /// The shape the code must use instead: nothing borrowed from the guard.
+    #[tokio::test]
+    async fn session_parts_holds_no_lock() {
+        let state = AppState::new(Store::open_in_memory().unwrap());
+        // No session yet, so this is the error path — the point is that it
+        // returns an owned value and the guard is gone by the time it does.
+        assert!(state.session_parts().await.is_err());
+        // Which means a writer can take the lock immediately afterwards.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), state.session.write())
+                .await
+                .is_ok(),
+            "session_parts left a guard alive"
+        );
     }
 }

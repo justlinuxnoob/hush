@@ -486,8 +486,7 @@ pub async fn run_unsubscribe(
 
     let mut executor = Executor::new(state.mailto_mode(), account.clone())?;
     if state.mailto_mode() == MailtoMode::SendViaGmail {
-        let session = state.session.read().await;
-        let session = session.as_ref().ok_or(Error::Unauthorized)?;
+        let session = state.session_parts().await?;
         if !session.can_send {
             return Err(Error::Setup(
                 "Hush doesn't have permission to send mail yet. Reconnect your \
@@ -533,8 +532,7 @@ pub async fn run_unsubscribe(
             .store
             .set_setting(SETTING_BLOCK_ACTION, action.as_str())?;
 
-        let session = state.session.read().await;
-        let session = session.as_ref().ok_or(Error::Unauthorized)?;
+        let session = state.session_parts().await?;
         let addresses: Vec<String> = requests.iter().map(|r| r.address.clone()).collect();
 
         report.blocked = Some(if session.can_block {
@@ -593,8 +591,7 @@ pub async fn preview_block_removal(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<RemovalPreview> {
-    let session = state.session.read().await;
-    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    let session = state.session_parts().await?;
     crate::filters::preview_removal(&session.gmail, &id, &Cancel::new()).await
 }
 
@@ -610,8 +607,7 @@ pub async fn remove_block(
     id: String,
     restore: bool,
 ) -> Result<RemovalReport> {
-    let session = state.session.read().await;
-    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    let session = state.session_parts().await?;
     if !session.can_block {
         return Err(Error::Setup(
             "Hush needs Google's permission for filters before it can remove one.".into(),
@@ -646,8 +642,7 @@ async fn tidy_up(
     cancel: &Cancel,
     app: &AppHandle,
 ) -> Result<TrashReport> {
-    let session = state.session.read().await;
-    let session = session.as_ref().ok_or(Error::Unauthorized)?;
+    let session = state.session_parts().await?;
     if !session.can_delete {
         return Err(Error::Setup(
             "Hush doesn't have permission to move your old mail yet. Reconnect \

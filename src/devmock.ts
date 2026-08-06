@@ -260,7 +260,20 @@ const handlers: Record<string, (a: Args) => unknown> = {
   },
   disconnect: () => status,
   erase_everything: () => status,
-  list_senders: () => senders,
+  list_senders: () =>
+    import.meta.env.VITE_HUSH_MANY
+      ? [
+          ...senders,
+          ...Array.from({ length: Number(import.meta.env.VITE_HUSH_MANY) }, (_, i) =>
+            sender(
+              `Sender Number ${i}`,
+              `bulk${i}@example.com`,
+              Math.max(1, 900 - i),
+              oneClick(`https://example.com/u/${i}`)
+            )
+          ),
+        ]
+      : senders,
   sender_messages: (a) => {
     const s = senders.find((x) => x.address === a.address);
     const n = s?.message_count ?? 0;
