@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import * as api from "../api";
 import { Notice, formatCount, formatDate } from "../components/ui";
-import { errorCode, errorMessage, type Status } from "../types";
+import { errorCode, errorMessage, type Check, type Status } from "../types";
 
 export default function Settings({
   status,
@@ -19,6 +19,41 @@ export default function Settings({
   const [confirmErase, setConfirmErase] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checks, setChecks] = useState<Check[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function runChecks() {
+    setProblem(null);
+    setChecking(true);
+    setCopied(false);
+    try {
+      setChecks(await api.diagnose());
+      // A check may have corrected the cached permissions, so pick that up.
+      onStatus(await api.status());
+    } catch (e) {
+      setProblem(errorMessage(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  /**
+   * The report is plain text on the clipboard rather than a file or an upload.
+   * It is going into a GitHub issue, and there is no Hush server to send it to.
+   */
+  async function copyReport() {
+    if (!checks) return;
+    const report = checks
+      .map((c) => `[${c.status.toUpperCase()}] ${c.name} — ${c.detail}${c.fix ? ` (${c.fix})` : ""}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopied(true);
+    } catch {
+      setProblem("Couldn't reach the clipboard. The results are on screen to copy by hand.");
+    }
+  }
 
   useEffect(() => {
     api.dataLocation().then(setWhere).catch(() => setWhere(""));
@@ -133,6 +168,66 @@ export default function Settings({
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="stack stack-4">
+          <h3>Is everything working?</h3>
+          <div className="card stack stack-3">
+            <p className="muted small">
+              Hush normally trusts what Google told it when you connected. This
+              asks Google again, right now, and proves each thing by doing it —
+              so if a permission was withdrawn, or something is broken, it says
+              so instead of failing halfway through a run.
+            </p>
+            <div className="row">
+              <button
+                className="btn-secondary"
+                onClick={runChecks}
+                disabled={checking}
+              >
+                {checking ? "Checking…" : "Check everything"}
+              </button>
+              {checks && (
+                <button className="btn-quiet btn-small" onClick={copyReport}>
+                  {copied ? "Copied" : "Copy for a bug report"}
+                </button>
+              )}
+            </div>
+
+            {checks && (
+              <div className="stack stack-2">
+                {checks.map((c) => (
+                  <div key={c.name} className="result-row">
+                    <span
+                      className={`badge ${
+                        c.status === "ok"
+                          ? "badge-auto"
+                          : c.status === "warn"
+                            ? "badge-caution"
+                            : "badge-neutral"
+                      }`}
+                      style={
+                        c.status === "fail"
+                          ? { color: "var(--danger)", background: "var(--danger-wash)" }
+                          : undefined
+                      }
+                    >
+                      {c.status === "ok" ? "OK" : c.status === "warn" ? "Check" : "Broken"}
+                    </span>
+                    <div className="stack" style={{ minWidth: 0, flex: 1 }}>
+                      <span className="result-name">{c.name}</span>
+                      <span className="muted small">{c.detail}</span>
+                      {c.fix && (
+                        <span className="small" style={{ color: "var(--caution)" }}>
+                          {c.fix}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

@@ -23,13 +23,11 @@
 //! its own filters. The failure mode is the safe one: they become foreign, and
 //! foreign filters are read-only.
 //!
-//! **On what has actually been proven.** Creating the label has been run
-//! against a real account. The create-list-classify-delete round trip has only
-//! been run against a mock, because the connection on the machine this was
-//! written on holds the modify permission but not the settings one. A mock
-//! agrees with whatever it is sent — that is how a completely dead trash
-//! feature once passed a green suite — so `tests/live_filters.rs` exists to ask
-//! Google the same question, and should be run before this is trusted.
+//! **Verified against a real account**, not only a mock. `tests/live_filters.rs`
+//! creates a filter, lists it back, classifies it as ours, deletes it and
+//! confirms it is gone — and passes. That test exists because a mock agrees
+//! with whatever it is sent, which is how a completely dead trash feature once
+//! passed a green suite. Run it after touching anything here.
 
 use std::sync::Arc;
 

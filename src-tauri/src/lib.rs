@@ -64,6 +64,7 @@ pub fn run() {
             commands::sender_messages,
             commands::plan_unsubscribe,
             commands::run_unsubscribe,
+            commands::diagnose,
             commands::list_blocks,
             commands::preview_block_removal,
             commands::remove_block,

@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   BacklogAction,
   BlockAction,
+  Check,
   MailtoMode,
   ManagedFilter,
   Outcome,
@@ -82,6 +83,15 @@ export const runUnsubscribe = (
     blockAction,
     backlogAction,
   });
+
+/**
+ * Check everything against Google, not against what Hush has cached.
+ *
+ * The one thing the app cannot otherwise notice: permissions revoked from a
+ * Google account page. Nothing tells it, so it keeps believing until an
+ * operation fails.
+ */
+export const diagnose = () => invoke<Check[]>("diagnose");
 
 /**
  * The account's filters, read live from Gmail every time.

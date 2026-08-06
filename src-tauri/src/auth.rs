@@ -28,6 +28,8 @@ use crate::gmail::TokenSource;
 
 const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
+/// Where Google will state what a token is actually allowed to do.
+const TOKENINFO_ENDPOINT: &str = "https://oauth2.googleapis.com/tokeninfo";
 const REVOKE_ENDPOINT: &str = "https://oauth2.googleapis.com/revoke";
 
 pub const SCOPE_READONLY: &str = "https://www.googleapis.com/auth/gmail.readonly";
@@ -219,6 +221,44 @@ impl GoogleAuth {
             access: RwLock::new(None),
             keychain: RwLock::new(None),
         }))
+    }
+
+    /// Ask Google what this connection is really permitted to do.
+    ///
+    /// Everywhere else, Hush works from the scope string Google returned when
+    /// the user connected, cached so a relaunch does not drag them back through
+    /// the consent screen. That cache can be wrong in one important direction:
+    /// permissions can be **revoked** from a Google account page at any time,
+    /// and nothing tells the app. It carries on believing it can create filters
+    /// until something fails in the middle of a run.
+    ///
+    /// This is the authoritative answer, and the only one worth showing a user
+    /// who is asking "is it actually connected?".
+    pub async fn live_scopes(&self) -> Result<Vec<String>> {
+        let token = <Self as crate::gmail::TokenSource>::access_token(self).await?;
+        let body = self
+            .http
+            .get(TOKENINFO_ENDPOINT)
+            .query(&[("access_token", token.as_str())])
+            .send()
+            .await
+            .map_err(|e| Error::Network(e.to_string()))?;
+
+        if !body.status().is_success() {
+            // A rejected token is a real answer: the connection is dead.
+            return Ok(Vec::new());
+        }
+
+        #[derive(serde::Deserialize)]
+        struct Info {
+            #[serde(default)]
+            scope: String,
+        }
+        let info: Info = body
+            .json()
+            .await
+            .map_err(|e| Error::UnexpectedResponse(e.to_string()))?;
+        Ok(info.scope.split_whitespace().map(str::to_string).collect())
     }
 
     /// Restore a previously stored connection without any user interaction.

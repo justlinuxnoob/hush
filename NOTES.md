@@ -644,6 +644,33 @@ The rule, written down because it will come up again: **nothing that awaits the
 network may hold a lock the interface needs.** Take what you need, drop the
 guard, then go and do the slow thing.
 
+## The app did not know what it was allowed to do
+
+"how does the app know? what if its mistaken?" — a fair question with an
+uncomfortable answer: it did not know. Every permission decision ran off a
+scope string cached when the user connected. Right almost always, and wrong in
+the one case that matters — access revoked from a Google account page, where
+nothing tells the app. It would keep believing it could create filters until
+something failed halfway through a run.
+
+Google's `tokeninfo` endpoint reports what a live token may actually do, and
+Settings now has a **Check everything** button that uses it. Nothing on that
+screen is taken on trust: permissions come from tokeninfo, reading is proved by
+reading, filters are proved by listing them. Where the live answer disagrees
+with the cache, the cache is corrected and the user is told to restart.
+
+Every line carries a fix, not just a verdict, and the results copy to the
+clipboard as plain text for a bug report — there is no Hush server to send
+them to, which is rather the point.
+
+## The last unverified thing is verified
+
+`tests/live_filters.rs` had been written but never run, because the machine it
+was written on lacked the settings permission. It has now run against a real
+account and passes: the marker label survives create, list, classify, delete.
+The doc comment in `filters.rs` claiming verification is finally true, having
+spent a while being corrected to say it was not.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

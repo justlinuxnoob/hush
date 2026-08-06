@@ -163,6 +163,15 @@ export interface RunReport {
   blocked: BlockReport | null;
 }
 
+/** One line of the troubleshooter. */
+export interface Check {
+  name: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+  /** Empty when nothing needs doing. */
+  fix: string;
+}
+
 /** The shape every rejected command takes. */
 export interface AppError {
   code: string;

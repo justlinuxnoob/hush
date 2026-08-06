@@ -568,6 +568,225 @@ pub async fn run_unsubscribe(
     Ok(report)
 }
 
+/// One thing that was checked, and what to do if it is wrong.
+#[derive(Debug, Serialize)]
+pub struct Check {
+    pub name: String,
+    /// `ok`, `warn` or `fail`. Plain strings so the interface can style them
+    /// without knowing the whole set.
+    pub status: &'static str,
+    pub detail: String,
+    /// What the user can actually do about it. Empty when nothing is wrong.
+    pub fix: String,
+}
+
+fn ok(name: &str, detail: String) -> Check {
+    Check {
+        name: name.into(),
+        status: "ok",
+        detail,
+        fix: String::new(),
+    }
+}
+fn warn(name: &str, detail: String, fix: &str) -> Check {
+    Check {
+        name: name.into(),
+        status: "warn",
+        detail,
+        fix: fix.into(),
+    }
+}
+fn bad(name: &str, detail: String, fix: &str) -> Check {
+    Check {
+        name: name.into(),
+        status: "fail",
+        detail,
+        fix: fix.into(),
+    }
+}
+
+/// Check everything, against reality rather than against what Hush believes.
+///
+/// This exists because of an honest hole. Every permission decision in the app
+/// runs off a scope string cached when the user connected — which is right
+/// almost always, and wrong in the one case that matters: access revoked from a
+/// Google account page, where nothing tells the app and it carries on assuming
+/// it can create filters until something fails mid-run.
+///
+/// So nothing here is taken on trust. The permissions come from Google's
+/// tokeninfo endpoint, reading is proved by actually reading, and filters are
+/// proved by actually listing them. If the live answer disagrees with the
+/// cache, the cache is corrected and the user is told.
+#[tauri::command]
+pub async fn diagnose(state: State<'_, AppState>) -> Result<Vec<Check>> {
+    let mut checks = Vec::new();
+
+    // --- setup -----------------------------------------------------------
+    match state.credentials() {
+        Ok(Some(_)) => checks.push(ok("Your Google key", "Saved on this computer.".into())),
+        Ok(None) => checks.push(bad(
+            "Your Google key",
+            "Not set up yet.".into(),
+            "Go through the setup steps to create one.",
+        )),
+        Err(e) => checks.push(bad(
+            "Your Google key",
+            e.to_string(),
+            "Try restarting Hush.",
+        )),
+    }
+
+    // --- the connection itself -------------------------------------------
+    let session = {
+        let guard = state.session.read().await;
+        guard
+            .as_ref()
+            .map(|s| (s.email.clone(), s.gmail.clone(), s.auth.clone()))
+    };
+
+    let Some((email, gmail, auth)) = session else {
+        checks.push(bad(
+            "Connection",
+            "Not connected to Google right now.".into(),
+            "Press Reconnect at the top of the window.",
+        ));
+        checks.push(local_data(&state));
+        return Ok(checks);
+    };
+
+    // --- what Google says we may do --------------------------------------
+    //
+    // The authoritative check, and the reason this screen exists.
+    let cancel = Cancel::new();
+    let live = auth.live_scopes().await;
+    match &live {
+        Ok(scopes) if scopes.is_empty() => checks.push(bad(
+            "Connection",
+            "Google rejected the connection — it has expired or been revoked.".into(),
+            "Press Reconnect at the top of the window.",
+        )),
+        Ok(scopes) => {
+            checks.push(ok("Connection", format!("Connected as {email}.")));
+
+            let joined = scopes.join(" ");
+            let has = |s: &str| joined.contains(s);
+            let cached = state
+                .store
+                .get_setting(SETTING_GRANTED)?
+                .unwrap_or_default();
+
+            for (label, scope, what) in [
+                ("Reading your mail", "gmail.readonly", "find senders at all"),
+                (
+                    "Moving old mail",
+                    "gmail.modify",
+                    "archive or bin old emails",
+                ),
+                ("Managing filters", "gmail.settings.basic", "block senders"),
+            ] {
+                if has(scope) {
+                    checks.push(ok(label, "Granted.".into()));
+                } else {
+                    checks.push(warn(
+                        label,
+                        format!("Not granted, so Hush can't {what}."),
+                        "Press Reconnect and tick it on Google's page.",
+                    ));
+                }
+            }
+
+            // The case this whole command was written for.
+            if cached.split_whitespace().count() != scopes.len() {
+                state.store.set_setting(SETTING_GRANTED, &joined)?;
+                checks.push(warn(
+                    "Permissions were out of date",
+                    "What Google allows had changed since Hush last looked. It has \
+                     been corrected."
+                        .into(),
+                    "Restart Hush so every screen picks up the change.",
+                ));
+            }
+        }
+        Err(e) => checks.push(warn(
+            "Connection",
+            format!("Couldn't ask Google what's permitted: {e}"),
+            "Usually a network problem. Try again in a moment.",
+        )),
+    }
+
+    // --- prove it by doing it --------------------------------------------
+    match gmail.profile().await {
+        Ok(p) => checks.push(ok(
+            "Reading works",
+            format!(
+                "Gmail answered — {} messages in the account.",
+                p.messages_total
+            ),
+        )),
+        Err(e) => checks.push(bad(
+            "Reading works",
+            format!("Gmail refused: {e}"),
+            "Press Reconnect. If it keeps happening, check your internet.",
+        )),
+    }
+
+    if live
+        .as_ref()
+        .is_ok_and(|s| s.iter().any(|x| x.contains("settings.basic")))
+    {
+        match crate::filters::list(&gmail, &cancel).await {
+            Ok(fs) => {
+                let mine = fs.iter().filter(|f| f.mine).count();
+                checks.push(ok(
+                    "Blocking works",
+                    format!("{} filters on the account, {mine} made by Hush.", fs.len()),
+                ));
+            }
+            Err(e) => checks.push(bad(
+                "Blocking works",
+                format!("Couldn't read your filters: {e}"),
+                "Press Reconnect and allow the filters permission again.",
+            )),
+        }
+    }
+
+    // --- this computer ----------------------------------------------------
+    if Keychain::is_available() {
+        checks.push(ok(
+            "Password store",
+            "Working, so the connection survives quitting.".into(),
+        ));
+    } else {
+        checks.push(warn(
+            "Password store",
+            "This computer has no working secret store.".into(),
+            "Everything works, but you'll reconnect each time you open Hush.",
+        ));
+    }
+
+    checks.push(local_data(&state));
+    Ok(checks)
+}
+
+/// Whether the local database is where it should be and can be written to.
+fn local_data(state: &AppState) -> Check {
+    match state.store.message_count("") {
+        Ok(_) => {
+            let path = state.store.path().to_path_buf();
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            ok(
+                "Local data",
+                format!("Readable, {:.1} MB.", size as f64 / 1_048_576.0),
+            )
+        }
+        Err(e) => bad(
+            "Local data",
+            format!("Hush can't read its own database: {e}"),
+            "Check you have free disk space, then restart Hush.",
+        ),
+    }
+}
+
 /// Every filter on the account, read live from Gmail.
 ///
 /// Hush keeps no record of what it has blocked. Gmail holds the filters, so

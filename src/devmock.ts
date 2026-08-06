@@ -309,6 +309,20 @@ const handlers: Record<string, (a: Args) => unknown> = {
       Boolean(a.blockFuture),
       (a.blockAction as BlockAction) ?? "archive"
     ),
+  diagnose: () => [
+    { name: "Your Google key", status: "ok", detail: "Saved on this computer.", fix: "" },
+    { name: "Connection", status: "ok", detail: "Connected as you@example.com.", fix: "" },
+    { name: "Reading your mail", status: "ok", detail: "Granted.", fix: "" },
+    {
+      name: "Managing filters",
+      status: "warn",
+      detail: "Not granted, so Hush can't block senders.",
+      fix: "Press Reconnect and tick it on Google's page.",
+    },
+    { name: "Reading works", status: "ok", detail: "Gmail answered — 18,442 messages in the account.", fix: "" },
+    { name: "Password store", status: "ok", detail: "Working, so the connection survives quitting.", fix: "" },
+    { name: "Local data", status: "ok", detail: "Readable, 12.4 MB.", fix: "" },
+  ],
   list_blocks: () => demoFilters,
   preview_block_removal: (a) => {
     const f = demoFilters.find((x) => x.id === a.id);
