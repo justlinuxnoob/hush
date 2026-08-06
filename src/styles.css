@@ -1230,3 +1230,24 @@ input.mono {
   color: var(--ink-soft);
   letter-spacing: 0.01em;
 }
+
+/* --- screenshots of Google's pages, in the setup wizard ------------------- */
+
+.shot {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--step) * 2);
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  /* Google's console is dark by default and these are screenshots of it, so on
+     a light page they arrive as a black slab. A neutral mat sets them apart as
+     a picture of something else rather than part of this interface. */
+  background: var(--paper-sunken);
+}

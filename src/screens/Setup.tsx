@@ -113,6 +113,7 @@ export default function Setup({
         {step === 1 && (
           <Panel
             title="Create a project"
+            step={1}
             body={
               <>
                 <p className="muted">
@@ -138,6 +139,7 @@ export default function Setup({
         {step === 2 && (
           <Panel
             title="Turn on Gmail"
+            step={2}
             body={
               <>
                 <p className="muted">
@@ -163,6 +165,7 @@ export default function Setup({
         {step === 3 && (
           <Panel
             title="Fill in the basics"
+            step={3}
             body={
               <>
                 <p className="muted">
@@ -190,6 +193,7 @@ export default function Setup({
         {step === 4 && (
           <Panel
             title="Add yourself as a tester"
+            step={4}
             body={
               <>
                 <p className="muted">
@@ -223,6 +227,7 @@ export default function Setup({
         {step === 5 && (
           <Panel
             title="Create the key and paste it here"
+            step={5}
             body={
               <>
                 <Ordered
@@ -340,11 +345,53 @@ export function parseGoogleJson(text: string): { id: string; secret: string } | 
   }
 }
 
-function Panel({ title, body }: { title: string; body: React.ReactNode }) {
+/**
+ * Screenshots of Google's own pages, keyed by step number.
+ *
+ * Loaded by filename rather than imported one by one, so adding a picture is
+ * dropping a file into `src/assets/setup/` and nothing else. A step with no
+ * file shows no picture, which is why this cannot break a build — the pages
+ * these show are Google's and they get redesigned without warning, so a
+ * missing or stale image must always degrade to the words alone.
+ */
+const SHOTS = import.meta.glob("../assets/setup/step-*.png", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+
+function shotFor(step: number): string | null {
+  const hit = Object.entries(SHOTS).find(([path]) =>
+    path.endsWith(`step-${step}.png`)
+  );
+  return hit ? hit[1] : null;
+}
+
+function Panel({
+  title,
+  body,
+  step,
+}: {
+  title: string;
+  body: React.ReactNode;
+  /** 1-based, matching the screenshot filenames. Omit for steps with none. */
+  step?: number;
+}) {
+  const shot = step ? shotFor(step) : null;
   return (
     <div className="stack stack-6">
       <h1 style={{ fontSize: "1.625rem" }}>{title}</h1>
       <div className="stack stack-4">{body}</div>
+      {shot && (
+        <figure className="shot">
+          <img src={shot} alt={`What this step looks like on Google's site`} />
+          <figcaption className="muted small">
+            What you're looking for. Google changes these pages from time to
+            time, so yours may not match exactly — the words above are what
+            matter.
+          </figcaption>
+        </figure>
+      )}
     </div>
   );
 }
@@ -367,6 +414,28 @@ function Ordered({ items }: { items: string[] }) {
  * The address is visible and copyable on purpose: a button that goes somewhere
  * unnamed is exactly the pattern people are told not to trust.
  */
+/**
+ * Google's console silently picks an account for you.
+ *
+ * Anyone signed into more than one Google account — most people — gets the
+ * console on whichever it saw first, not the one they mean to use. The whole
+ * setup then completes against the wrong account and the failure surfaces much
+ * later as "Google turned the request down", with nothing pointing at why.
+ *
+ * Said on every page that opens the console rather than once at the start.
+ * Repetition is right when the mistake is invisible, easy, and expensive.
+ */
+function WrongAccountWarning() {
+  return (
+    <p className="muted small">
+      <strong style={{ color: "var(--caution)" }}>Check the account.</strong>{" "}
+      Google picks one for you and it is often not the one you want. Look at the
+      circle in the top right of the page and switch to the Gmail account you
+      are tidying up — check it on every page, because it can change back.
+    </p>
+  );
+}
+
 function OpenButton({
   label,
   url,
@@ -388,6 +457,9 @@ function OpenButton({
         </button>
       </div>
       {showing && <CopyField label="It opens this page" value={url} />}
+      {/* Attached to the button rather than written into each step, so a step
+          added later cannot forget it. */}
+      <WrongAccountWarning />
     </div>
   );
 }

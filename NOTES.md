@@ -785,6 +785,38 @@ right box — three chances to get it wrong, one of which the app's own error
 message already anticipated ("it's easy to paste one into the other's box").
 Either box now accepts the whole file and fills in both.
 
+## Google picks the wrong account for you
+
+The best gap report of the project, and it came from someone doing the setup:
+Google's console silently signs you into whichever account it saw first. Anyone
+with more than one — most people — can complete the entire setup against the
+wrong account, and the failure surfaces much later as "Google turned the
+request down" with nothing pointing at why.
+
+The warning is attached to the button that opens the console rather than
+written into each step, so a step added later cannot forget it. It repeats on
+all five pages, deliberately: repetition is the right call when a mistake is
+invisible, easy and expensive.
+
+## Pictures of somebody else's website
+
+The setup wizard can show a screenshot of each Google page beside the
+instruction. They are loaded by filename from `src/assets/setup/`, so adding
+one is dropping in a file, and a missing file shows no picture rather than
+breaking the build.
+
+That last part is the design, not a convenience. These are screenshots of
+Google's console, which is redesigned without notice, so the words have to
+carry the step on their own and the picture can only ever be a help. A wizard
+that depends on an image matching a page Google controls is a wizard that
+breaks on someone else's schedule.
+
+One rule in the folder's README, which matters more than the rest: the last
+screenshot must not include the Client ID or secret. Google shows both on that
+dialog. A real-looking credential in a public repository is alarming whether or
+not it still works — people report it, and anyone copying the repo inherits the
+confusion.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically
