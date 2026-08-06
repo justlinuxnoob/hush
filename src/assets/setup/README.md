@@ -6,14 +6,20 @@ picked up by filename, so adding one is not a code change.
 
 Missing files are fine: the wizard simply shows no picture for that step.
 
+A step can have several pictures. `step-5.png`, `step-5b.png` and `step-5c.png`
+all belong to step 5 and show in that order — the last step is three separate
+actions, so one image cannot carry it.
+
 | File | Page | What it should show |
 |---|---|---|
 | `step-1.png` | `console.cloud.google.com/projectcreate` | The **Project name** field and the **Create** button |
 | `step-2.png` | Gmail API library page | The blue **Enable** button |
-| `step-3.png` | `auth/branding` | The **App Information** step, or **Audience → External** selected |
+| `step-3.png` | `auth/branding` | **Audience → External** selected — the choice people get wrong |
+| `step-3b.png` | `auth/branding` | Optional: the **App Information** step above it |
 | `step-4.png` | `auth/audience` | **Test users** with **Add users** visible |
-| `step-5.png` | `auth/clients` | The **Application type → Desktop app** dropdown |
-| `step-6.png` | after creating the client | **Only the Download JSON row.** |
+| `step-5.png` | `auth/clients` | The **Create client** button |
+| `step-5b.png` | `auth/clients` | The **Application type** dropdown with **Desktop app** in it |
+| `step-5c.png` | after creating | **Only the Download JSON row.** See below. |
 
 ## One rule
 

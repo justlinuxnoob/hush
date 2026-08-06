@@ -23,9 +23,7 @@ use crate::state::{
     SETTING_CONNECTED_MS, SETTING_GRANTED, SETTING_SEEN_WELCOME,
 };
 use crate::store::Store;
-use crate::unsub::{
-    BacklogAction, Executor, MailtoMode, PlannedAction, RunReport, TrashReport, UnsubRequest,
-};
+use crate::unsub::{BacklogAction, Executor, PlannedAction, RunReport, TrashReport, UnsubRequest};
 
 /// Emitted repeatedly while a scan runs.
 pub const EVENT_SCAN_PROGRESS: &str = "scan-progress";
@@ -42,7 +40,6 @@ pub struct Status {
     pub can_delete: bool,
     /// Whether Hush may create a Gmail filter to stop future mail outright.
     pub can_block: bool,
-    pub mailto_mode: MailtoMode,
     /// False on machines with no working secret store; the interface warns that
     /// the connection will not survive quitting.
     pub keychain_available: bool,
@@ -92,7 +89,6 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
         can_send: session.as_ref().is_some_and(|s| s.can_send),
         can_delete: session.as_ref().is_some_and(|s| s.can_delete),
         can_block: session.as_ref().is_some_and(|s| s.can_block),
-        mailto_mode: state.mailto_mode(),
         keychain_available: Keychain::is_available(),
         token_storage: session.as_ref().map(|s| s.storage),
         seen_welcome: state
@@ -501,10 +497,14 @@ pub async fn plan_unsubscribe(
     selection: Selection,
 ) -> Result<Vec<PlannedAction>> {
     let requests = resolve(&state, &selection.addresses).await?;
-    let executor = Executor::new(
-        state.mailto_mode(),
-        state.account_or_stored().await.unwrap_or_default(),
-    )?;
+    let mut executor = Executor::new(state.account_or_stored().await.unwrap_or_default())?;
+    // Attached so the plan describes a `mailto:` sender the way the run will
+    // actually treat it — sent for you, or blocked instead.
+    if let Ok(session) = state.session_parts().await {
+        if session.can_send {
+            executor = executor.with_gmail(session.gmail.clone());
+        }
+    }
     Ok(executor.plan(&requests))
 }
 
@@ -532,17 +532,15 @@ pub async fn run_unsubscribe(
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
 
-    let mut executor = Executor::new(state.mailto_mode(), account.clone())?;
-    if state.mailto_mode() == MailtoMode::SendViaGmail {
-        let session = state.session_parts().await?;
-        if !session.can_send {
-            return Err(Error::Setup(
-                "Hush doesn't have permission to send mail yet. Reconnect your \
-                 account and allow it, or switch back to using your own mail app."
-                    .into(),
-            ));
+    let mut executor = Executor::new(account.clone())?;
+    // Sending is optional and always was. Without it, the handful of senders
+    // that only accept an unsubscribe by email are reported as un-automatable
+    // and blocked instead — which is the point: not being able to do something
+    // automatically is never a reason to hand the user a job.
+    if let Ok(session) = state.session_parts().await {
+        if session.can_send {
+            executor = executor.with_gmail(session.gmail.clone());
         }
-        executor = executor.with_gmail(session.gmail.clone());
     }
 
     let cancel = Cancel::new();
@@ -1008,11 +1006,6 @@ pub async fn open_link(url: String) -> Result<()> {
 
 // --- settings -------------------------------------------------------------
 
-#[tauri::command]
-pub async fn set_mailto_mode(state: State<'_, AppState>, mode: MailtoMode) -> Result<()> {
-    state.set_mailto_mode(mode)
-}
-
 /// Open the folder holding the log and the database.
 ///
 /// Exists because "it didn't work" is unanswerable without knowing what Google
@@ -1115,26 +1108,6 @@ mod tests {
                 url: "https://x.example/u".into()
             }
         );
-    }
-
-    #[test]
-    fn the_mailto_default_needs_no_extra_permission() {
-        let (state, _) = state_with(&[]);
-        assert_eq!(state.mailto_mode(), MailtoMode::HandOff);
-        state.set_mailto_mode(MailtoMode::SendViaGmail).unwrap();
-        assert_eq!(state.mailto_mode(), MailtoMode::SendViaGmail);
-    }
-
-    #[tokio::test]
-    async fn only_https_and_mailto_links_can_be_opened() {
-        for bad in [
-            "file:///etc/passwd",
-            "javascript:alert(1)",
-            "data:text/html,hi",
-            "not a url",
-        ] {
-            assert!(open_link(bad.to_string()).await.is_err(), "{bad}");
-        }
     }
 
     #[test]

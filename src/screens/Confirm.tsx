@@ -195,24 +195,23 @@ export default function Confirm({
             senders={automatic}
           />
           <Group
-            n={byEmail.length}
-            title={
-              status.mailto_mode === "send_via_gmail"
-                ? "Unsubscribed by email"
-                : "A ready-written email opens"
-            }
-            detail={
-              status.mailto_mode === "send_via_gmail"
-                ? "Hush sends a short unsubscribe message from your account."
-                : "Your own mail app opens with the message written. You press send."
-            }
+            n={status.can_send ? byEmail.length : 0}
+            title="Unsubscribed by email"
+            detail="Hush sends a short unsubscribe message from your account."
             senders={byEmail}
           />
+          {/* Everything Hush cannot do on its own lands here, and the answer is
+              always a filter rather than a list of links. There is no version
+              of this screen that ends with the user having a job. */}
           <Group
-            n={manual.length}
-            title="You'll open these yourself"
-            detail="These senders only offer a link. Hush won't click it for you — it'll list them so you can."
-            senders={manual}
+            n={manual.length + (status.can_send ? 0 : byEmail.length)}
+            title="Blocked instead"
+            detail={
+              status.can_block
+                ? "Nothing can be sent automatically for these, so a Gmail filter keeps their mail out of your inbox. Nothing for you to do."
+                : "Nothing can be sent automatically for these. Allow Hush to block senders below and they're handled too."
+            }
+            senders={status.can_send ? manual : [...manual, ...byEmail]}
           />
         </div>
 

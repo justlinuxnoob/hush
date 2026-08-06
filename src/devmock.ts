@@ -35,7 +35,6 @@ let status: Status = {
   can_send: false,
   can_delete: false,
   can_block: false,
-  mailto_mode: "hand_off",
   keychain_available: true,
   token_storage: "keychain",
   seen_welcome: true,
@@ -291,10 +290,6 @@ const handlers: Record<string, (a: Args) => unknown> = {
     console.info("[demo] would open", a.url);
     return undefined;
   },
-  set_mailto_mode: (a) => {
-    status = { ...status, mailto_mode: a.mode as Status["mailto_mode"] };
-    return undefined;
-  },
   set_never_touch: (a) => {
     senders = senders.map((s) =>
       s.address === a.address ? { ...s, never_touch: Boolean(a.never) } : s
@@ -422,6 +417,14 @@ export function installMockBackend() {
     return handlerId;
   };
   handlers["plugin:event|unlisten"] = () => undefined;
+
+  // Tauri's event API calls straight into this global when a listener is torn
+  // down, so without it every unmount throws "cannot read unregisterListener"
+  // into the console. Harmless in the demo and pure noise — which matters,
+  // because a console full of expected errors is a console nobody reads.
+  (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener: () => {},
+  };
 
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = internals;
   console.info("[demo] running against the mock backend — no Google, no Rust");

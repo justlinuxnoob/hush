@@ -13,7 +13,6 @@ import type {
   BacklogAction,
   BlockAction,
   Check,
-  MailtoMode,
   ManagedFilter,
   Outcome,
   PlannedAction,
@@ -107,8 +106,6 @@ export const removeBlock = (id: string, restore: boolean) =>
 
 export const outcomes = () => invoke<Outcome[]>("outcomes");
 export const openLink = (url: string) => invoke<void>("open_link", { url });
-export const setMailtoMode = (mode: MailtoMode) =>
-  invoke<void>("set_mailto_mode", { mode });
 export const dataLocation = () => invoke<string>("data_location");
 export const openDataFolder = () => invoke<void>("open_data_folder");
 

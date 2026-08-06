@@ -1,14 +1,12 @@
-import { useState } from "react";
-
-import * as api from "../api";
 import { Notice, plural } from "../components/ui";
-import { errorMessage, type Outcome, type RunReport } from "../types";
+import { type RunReport } from "../types";
 
 /**
  * What actually happened.
  *
- * The manual list is the part that matters: it stays put, shrinks as the user
- * ticks things off, and is the only place the app asks anything of them.
+ * Nothing on this screen asks anything of the user. There are no links to open
+ * and no list of things left to do — a sender Hush cannot handle automatically
+ * gets a filter, not a chore. That is the whole point of the app.
  */
 export default function Results({
   report,
@@ -17,22 +15,11 @@ export default function Results({
   report: RunReport;
   onFinish: () => void;
 }) {
-  const [problem, setProblem] = useState<string | null>(null);
-
   const succeeded = report.outcomes.filter((o) => o.status === "done");
   const sent = report.outcomes.filter((o) => o.status === "sent");
   const couldNotAutomate = report.outcomes.filter((o) => o.status === "could_not_automate");
   const failed = report.outcomes.filter((o) => o.status === "failed");
 
-
-  async function open(o: Outcome) {
-    if (!o.link) return;
-    try {
-      await api.openLink(o.link);
-    } catch (e) {
-      setProblem(errorMessage(e));
-    }
-  }
 
   // Whether blocking covered the senders nothing automatic could reach.
   const blockedOk = (report.blocked?.blocked ?? 0) > 0;
@@ -53,8 +40,6 @@ export default function Results({
         <div className="stack stack-3">
           <h1>{headline}</h1>
         </div>
-
-        {problem && <Notice tone="problem">{problem}</Notice>}
 
         {!report.trash && (
           <Notice tone="calm">
@@ -149,7 +134,7 @@ export default function Results({
         {sent.length > 0 && (
           <Section
             title={`Unsubscribe sent to ${plural(sent.length, "sender")}`}
-            note="Their server accepted it, which is as far as anything can be confirmed — nothing in email reports back that a sender actually acted. Most stop within a few days. A few accept the request and still want you to press a button on their own page; if you want to be certain, check."
+            note="Their server accepted it, which is as far as anything can be confirmed — nothing in email reports back that a sender actually acted on it. Most stop within a few days. Blocking them as well is what makes it certain."
           >
             {sent.map((o) => (
               <div key={o.address} className="result-row">
@@ -158,11 +143,7 @@ export default function Results({
                   <span className="muted small">{o.detail}</span>
                 </div>
                 <div className="spacer" />
-                {o.link && (
-                  <button className="btn-secondary btn-small" onClick={() => open(o)}>
-                    Check it yourself
-                  </button>
-                )}
+
               </div>
             ))}
           </Section>
@@ -178,7 +159,7 @@ export default function Results({
                       ? "goes to Trash"
                       : "skips your inbox"
                   } from now on and there's nothing for you to do.`
-                : "They only offer an unsubscribe you'd have to click through yourself. Blocking would handle these without any work from you — it's the option on the previous screen."
+                : "They only offer an unsubscribe that can't be sent automatically. Blocking handles them without any work from you — it's the option on the previous screen."
             }
           >
             {couldNotAutomate.map((o) => (
@@ -188,15 +169,7 @@ export default function Results({
                   <span className="muted small">{o.detail}</span>
                 </div>
                 <div className="spacer" />
-                {blockedOk ? (
-                  <span className="badge badge-auto">Blocked instead</span>
-                ) : (
-                  o.link && (
-                    <button className="btn-quiet btn-small" onClick={() => open(o)}>
-                      Their page
-                    </button>
-                  )
-                )}
+                {blockedOk && <span className="badge badge-auto">Blocked instead</span>}
               </div>
             ))}
           </Section>
@@ -205,7 +178,7 @@ export default function Results({
         {failed.length > 0 && (
           <Section
             title={`${plural(failed.length, "sender")} didn't work`}
-            note="Nothing was changed for these. You can try again, or open the link yourself."
+            note="Nothing was changed for these. Running again often works — and blocking them handles it without needing the sender to cooperate at all."
           >
             {failed.map((o) => (
               <div key={o.address} className="result-row">
@@ -214,11 +187,7 @@ export default function Results({
                   <span className="muted small">{o.detail}</span>
                 </div>
                 <div className="spacer" />
-                {o.link && (
-                  <button className="btn-secondary btn-small" onClick={() => open(o)}>
-                    Open link
-                  </button>
-                )}
+
               </div>
             ))}
           </Section>

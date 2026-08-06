@@ -82,7 +82,6 @@ pub fn run() {
             commands::remove_block,
             commands::outcomes,
             commands::open_link,
-            commands::set_mailto_mode,
             commands::data_location,
             commands::open_data_folder,
             commands::erase_everything,

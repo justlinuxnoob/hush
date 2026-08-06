@@ -360,11 +360,19 @@ const SHOTS = import.meta.glob("../assets/setup/step-*.png", {
   import: "default",
 }) as Record<string, string>;
 
-function shotFor(step: number): string | null {
-  const hit = Object.entries(SHOTS).find(([path]) =>
-    path.endsWith(`step-${step}.png`)
-  );
-  return hit ? hit[1] : null;
+/**
+ * Every picture for a step, in filename order.
+ *
+ * A step is not always one action. The last one is three — create the client,
+ * choose Desktop app, download the file — so `step-5.png`, `step-5b.png` and
+ * `step-5c.png` all belong to it and all show, in that order.
+ */
+function shotsFor(step: number): string[] {
+  return Object.entries(SHOTS)
+    .filter(([path]) => /\/step-(\d+)[a-z]?\.png$/.test(path) && path.includes(`step-${step}`))
+    .filter(([path]) => new RegExp(`/step-${step}[a-z]?\\.png$`).test(path))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, url]) => url);
 }
 
 function Panel({
@@ -377,16 +385,18 @@ function Panel({
   /** 1-based, matching the screenshot filenames. Omit for steps with none. */
   step?: number;
 }) {
-  const shot = step ? shotFor(step) : null;
+  const shots = step ? shotsFor(step) : [];
   return (
     <div className="stack stack-6">
       <h1 style={{ fontSize: "1.625rem" }}>{title}</h1>
       <div className="stack stack-4">{body}</div>
-      {shot && (
+      {shots.length > 0 && (
         <figure className="shot">
-          <img src={shot} alt={`What this step looks like on Google's site`} />
+          {shots.map((src, i) => (
+            <img key={src} src={src} alt={`Step ${step}, part ${i + 1}, on Google's site`} />
+          ))}
           <figcaption className="muted small">
-            What you're looking for. Google changes these pages from time to
+            What you're looking for. Google redesigns these pages from time to
             time, so yours may not match exactly — the words above are what
             matter.
           </figcaption>

@@ -101,14 +101,20 @@ On top of that:
 
 ## How unsubscribing actually works
 
-There are three kinds of unsubscribe in the wild, and Hush treats them
-differently on purpose.
+There are three kinds of unsubscribe in the wild. **Hush never hands you any of
+them to do yourself.**
 
-| | What Hush does | Why |
-|---|---|---|
-| **One-click** (RFC 8058) | Sends a `POST` with body `List-Unsubscribe=One-Click`. Fully automatic. | The sender has explicitly promised that this exact request means "unsubscribe" and nothing else. |
-| **`mailto:`** | Either opens a ready-written message in your own mail app *(default)*, or sends it through Gmail *(only if you grant the send permission)*. | Unambiguous, but sending mail as you is a big permission — so it's opt-in. |
-| **A plain link** | **Nothing.** It's listed under "you'll open these yourself", and you tick them off as you go. | A bare link might be a one-tap unsubscribe, a preference centre, a login wall, or a confirmation page. We can't tell, so a human decides. |
+| | What Hush does |
+|---|---|
+| **One-click** (RFC 8058) | Sends a `POST` with body `List-Unsubscribe=One-Click`. Fully automatic, and about 93% of senders in practice. |
+| **`mailto:`** | Sends the unsubscribe email through Gmail, if you granted the send permission. If you didn't, it's blocked instead. |
+| **A plain link** | **Blocked.** A bare link might be a one-tap unsubscribe, a preference centre, a login wall or a confirmation page — nothing can tell which, so Hush doesn't guess and doesn't ask you to go and find out. |
+
+That last row is the important one. An earlier version listed those senders with
+their links so you could open each one yourself, which is a to-do list dressed
+up as a feature. A filter stops their mail without needing the sender to
+cooperate at all, so that is what happens instead. There is no screen in this
+app that ends with you having a job.
 
 Hush will not follow redirects on a one-click endpoint (RFC 8058 forbids them),
 sends no cookies, and refuses any unsubscribe URL that resolves to your own
@@ -250,7 +256,7 @@ what's on this computer.
 | `gmail.readonly` | Always | Reading message metadata. Cannot change anything. |
 | `gmail.modify` | For binning old mail, and for putting mail back when you unblock | Moving mail to and from Trash, and adding the `Hush` label. **Not** permanent deletion — that is a different scope, and Hush never asks for it. |
 | `gmail.settings.basic` | For blocking, and for the Blocked senders screen | Creating, reading and deleting Gmail filters. Reading them back needs no wider permission than making them, so managing your blocks costs you nothing extra. |
-| `gmail.send` | Only if you tick "send mail as me" | Sending the handful of unsubscribes that only work by email. |
+| `gmail.send` | Optional | Sending the handful of unsubscribes that only work by email. Decline it and those senders are blocked instead — nothing is left for you to do either way. |
 
 Google presents these as separate tick-boxes on its own consent page, so you can
 decline any of them there. Hush trusts what Google actually granted rather than

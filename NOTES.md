@@ -817,6 +817,31 @@ dialog. A real-looking credential in a public repository is alarming whether or
 not it still works — people report it, and anyone copying the repo inherits the
 confusion.
 
+## Finishing the job that "no homework" started
+
+The rule was stated in 0.5.0 and then not carried all the way. Three paths
+survived that ended with the user doing something:
+
+- `mailto:` senders, without the send permission, opened a pre-written message
+  in the user's own mail app for them to send by hand.
+- Link-only senders were listed on the results screen with an **Open link**
+  button each.
+- Successful ones offered **Check it yourself**.
+
+Each seemed reasonable in isolation and each is a chore. Removed: the whole
+`MailtoMode` enum, the hand-off branch, the Settings section that existed only
+to choose between them, the three link buttons, and the confirm screen's
+"you'll open these yourself" group. Anything that cannot be done automatically
+is now reported as un-automatable and blocked, which needs nothing from anyone.
+
+Sending stays optional and always was. Declining it does not produce work — it
+produces a filter.
+
+The lesson is about how a rule decays. Nobody decided to keep homework in the
+app; the rule was applied to the loudest case and the quiet ones were never
+revisited. "We fixed that" is a claim with a shelf life, and the only way to
+check it is to go back and look for the same shape somewhere else.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

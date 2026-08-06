@@ -66,22 +66,6 @@ where
 /// The exact body RFC 8058 specifies.
 const ONE_CLICK_BODY: &str = "List-Unsubscribe=One-Click";
 
-/// How `mailto:` unsubscribes are carried out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MailtoMode {
-    /// Open the user's own mail app with a prefilled draft. They press send.
-    /// Needs no extra permission from Google.
-    ///
-    /// The default, deliberately: sending mail on someone's behalf should be
-    /// something they opt into, not something they discover.
-    #[default]
-    HandOff,
-    /// Send it through Gmail directly. Fully automatic, but requires the
-    /// broader "send mail" permission.
-    SendViaGmail,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnsubRequest {
     pub address: String,
@@ -110,7 +94,6 @@ pub struct PlannedAction {
 
 pub struct Executor {
     http: reqwest::Client,
-    pub mailto_mode: MailtoMode,
     gmail: Option<Arc<GmailClient>>,
     from_address: String,
 }
@@ -245,7 +228,7 @@ pub async fn block_senders(
 }
 
 impl Executor {
-    pub fn new(mailto_mode: MailtoMode, from_address: String) -> Result<Self> {
+    pub fn new(from_address: String) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("hush/", env!("CARGO_PKG_VERSION")))
             .timeout(HTTP_TIMEOUT)
@@ -257,7 +240,6 @@ impl Executor {
             .build()?;
         Ok(Self {
             http,
-            mailto_mode,
             gmail: None,
             from_address,
         })
@@ -279,27 +261,19 @@ impl Executor {
                 "Unsubscribe automatically".to_string(),
                 format!("POST {url}\nContent-Type: application/x-www-form-urlencoded\n\n{ONE_CLICK_BODY}"),
             ),
-            UnsubMethod::Mailto { address, subject, body } => match self.mailto_mode {
-                MailtoMode::HandOff => (
-                    "Open a ready-to-send email".to_string(),
-                    format!(
-                        "Open your mail app addressed to {address}\nSubject: {}\n\n{}",
-                        subject.as_deref().unwrap_or("Unsubscribe"),
-                        body.as_deref().unwrap_or("")
-                    ),
+            UnsubMethod::Mailto { address, subject, .. } if self.gmail.is_some() => (
+                "Send an unsubscribe email".to_string(),
+                format!(
+                    "Send mail as {} to {address}\nSubject: {}",
+                    self.from_address,
+                    subject.as_deref().unwrap_or("Unsubscribe")
                 ),
-                MailtoMode::SendViaGmail => (
-                    "Send an unsubscribe email".to_string(),
-                    format!(
-                        "Send mail as {} to {address}\nSubject: {}",
-                        self.from_address,
-                        subject.as_deref().unwrap_or("Unsubscribe")
-                    ),
-                ),
-            },
-            UnsubMethod::ManualLink { url } => (
-                "You'll open this one yourself".to_string(),
-                format!("No request is sent. The link is listed for you to open: {url}"),
+            ),
+            UnsubMethod::Mailto { .. } | UnsubMethod::ManualLink { .. } => (
+                "Blocked instead".to_string(),
+                "Nothing can be sent automatically for this sender, so a Gmail \
+                 filter keeps their mail out of the inbox instead."
+                    .to_string(),
             ),
             UnsubMethod::None => (
                 "Nothing to do".to_string(),
@@ -390,7 +364,7 @@ impl Executor {
             .iter()
             .filter(|m| match m {
                 UnsubMethod::OneClick { .. } => true,
-                UnsubMethod::Mailto { .. } => self.mailto_mode == MailtoMode::SendViaGmail,
+                UnsubMethod::Mailto { .. } => self.gmail.is_some(),
                 UnsubMethod::ManualLink { .. } | UnsubMethod::None => false,
             })
             .collect();
@@ -488,13 +462,8 @@ impl Executor {
                 let body = body
                     .as_deref()
                     .unwrap_or("Please unsubscribe me from this list.");
-                match self.mailto_mode {
-                    MailtoMode::HandOff => Err(Error::Other(
-                        "This sender only accepts unsubscribes by email, and Hush \
-                         doesn't have permission to send one."
-                            .into(),
-                    )),
-                    MailtoMode::SendViaGmail => {
+                {
+                    {
                         let gmail = self.gmail.as_ref().ok_or_else(|| {
                             Error::Setup(
                                 "Hush needs permission to send mail for this. \
@@ -1053,7 +1022,7 @@ mod tests {
     }
 
     fn exec() -> Executor {
-        Executor::new(MailtoMode::HandOff, "me@example.com".into()).unwrap()
+        Executor::new("me@example.com".into()).unwrap()
     }
 
     #[test]
@@ -1068,11 +1037,33 @@ mod tests {
     }
 
     #[test]
-    fn a_manual_link_plan_promises_no_request() {
+    fn a_link_only_sender_is_promised_a_filter_not_a_chore() {
+        // The link is never offered to the user, in the plan or afterwards.
+        // Anything that cannot be sent automatically gets blocked instead —
+        // handing someone a list of pages to visit is the work this app exists
+        // to remove.
         let plan = exec().plan(&[req(UnsubMethod::ManualLink {
             url: "https://acme.example/u".into(),
         })]);
-        assert!(plan[0].detail.contains("No request is sent"));
+        assert_eq!(plan[0].what, "Blocked instead");
+        assert!(plan[0].detail.contains("filter"));
+        assert!(
+            !plan[0].detail.contains("https://acme.example/u"),
+            "the link must not be put in front of the user"
+        );
+    }
+
+    #[test]
+    fn a_mailto_sender_is_blocked_when_hush_cannot_send() {
+        // Sending is an optional permission. Without it there is no hand-off to
+        // the user's own mail app — that was a chore too, and it is gone.
+        let plan = exec().plan(&[req(UnsubMethod::Mailto {
+            address: "unsub@acme.example".into(),
+            subject: None,
+            body: None,
+        })]);
+        assert_eq!(plan[0].what, "Blocked instead");
+        assert!(!plan[0].detail.contains("your mail app"));
     }
 
     // --- real requests -----------------------------------------------------
@@ -1320,7 +1311,7 @@ mod tests {
 
     #[tokio::test]
     async fn sending_via_gmail_without_permission_fails_clearly() {
-        let e = Executor::new(MailtoMode::SendViaGmail, "me@example.com".into()).unwrap();
+        let e = Executor::new("me@example.com".into()).unwrap();
         let report = e
             .run(
                 &[req(UnsubMethod::Mailto {
@@ -1521,11 +1512,6 @@ mod tests {
         assert!(raw.contains("Subject: Unsubscribe\r\n"));
         assert!(raw.contains("charset=\"utf-8\""));
         assert!(raw.ends_with("please\r\n"));
-    }
-
-    #[test]
-    fn the_default_mailto_mode_asks_for_no_extra_permission() {
-        assert_eq!(MailtoMode::default(), MailtoMode::HandOff);
     }
 
     // --- tidying up --------------------------------------------------------

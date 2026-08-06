@@ -39,7 +39,6 @@ export interface Sender {
   sample_subjects: string[];
 }
 
-export type MailtoMode = "hand_off" | "send_via_gmail";
 
 /**
  * What blocking a sender does to their future mail.
@@ -61,7 +60,6 @@ export interface Status {
   can_send: boolean;
   can_delete: boolean;
   can_block: boolean;
-  mailto_mode: MailtoMode;
   keychain_available: boolean;
   token_storage: TokenStorage | null;
   seen_welcome: boolean;

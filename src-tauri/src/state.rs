@@ -9,12 +9,10 @@ use crate::error::{Error, Result};
 use crate::gmail::{Cancel, GmailClient};
 use crate::ratelimit::AdaptiveLimiter;
 use crate::store::Store;
-use crate::unsub::MailtoMode;
 
 pub const SETTING_ACCOUNT: &str = "account_email";
 pub const SETTING_CLIENT_ID: &str = "client_id";
 pub const SETTING_CLIENT_SECRET: &str = "client_secret";
-pub const SETTING_MAILTO_MODE: &str = "mailto_mode";
 pub const SETTING_SEEN_WELCOME: &str = "seen_welcome";
 /// The permissions Google actually granted last time.
 ///
@@ -123,29 +121,6 @@ impl AppState {
 
     pub fn account(&self) -> Result<Option<String>> {
         self.store.get_setting(SETTING_ACCOUNT)
-    }
-
-    pub fn mailto_mode(&self) -> MailtoMode {
-        match self
-            .store
-            .get_setting(SETTING_MAILTO_MODE)
-            .ok()
-            .flatten()
-            .as_deref()
-        {
-            Some("send_via_gmail") => MailtoMode::SendViaGmail,
-            _ => MailtoMode::HandOff,
-        }
-    }
-
-    pub fn set_mailto_mode(&self, mode: MailtoMode) -> Result<()> {
-        self.store.set_setting(
-            SETTING_MAILTO_MODE,
-            match mode {
-                MailtoMode::HandOff => "hand_off",
-                MailtoMode::SendViaGmail => "send_via_gmail",
-            },
-        )
     }
 
     /// The session's client and permissions, copied out, with the lock released.

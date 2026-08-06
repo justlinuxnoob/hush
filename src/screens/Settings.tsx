@@ -137,53 +137,6 @@ export default function Settings({
         </div>
 
         <div className="stack stack-4">
-          <h3>How Hush behaves</h3>
-
-          <div className="card stack stack-4">
-            <div className="stack stack-3">
-              <div className="stack">
-                <strong>Unsubscribes that work by email</strong>
-                <span className="muted small">
-                  A few senders only accept an email. Choose who sends it.
-                </span>
-              </div>
-              <div className="choices">
-                <ModeChoice
-                  active={status.mailto_mode === "hand_off"}
-                  title="Open my mail app"
-                  why="Hush writes the message, you press send. No extra permission needed."
-                  onPick={() => guard(() => api.setMailtoMode("hand_off"))}
-                  disabled={busy}
-                />
-                <ModeChoice
-                  active={status.mailto_mode === "send_via_gmail"}
-                  title="Let Hush send it"
-                  why={
-                    status.can_send
-                      ? "Fully automatic. Hush sends a short message from your account."
-                      : "Fully automatic. Google has to grant this separately, so choosing it opens your browser once."
-                  }
-                  // If the permission is missing, ask for it rather than
-                  // disabling the option and telling the user to go and find it.
-                  onPick={() =>
-                    guard(async () => {
-                      if (!status.can_send) {
-                        const s = await api.connect(true, status.can_delete, status.can_block);
-                        if (!s.can_send) return s;
-                        await api.setMailtoMode("send_via_gmail");
-                        return await api.status();
-                      }
-                      return api.setMailtoMode("send_via_gmail");
-                    })
-                  }
-                  disabled={busy}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="stack stack-4">
           <h3>Is everything working?</h3>
           <div className="card stack stack-3">
             <p className="muted small">
@@ -329,25 +282,3 @@ export default function Settings({
   );
 }
 
-function ModeChoice({
-  active,
-  title,
-  why,
-  onPick,
-  disabled,
-}: {
-  active: boolean;
-  title: string;
-  why: string;
-  onPick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button className="choice" aria-pressed={active} onClick={onPick} disabled={disabled}>
-      <span>
-        <strong>{title}</strong>
-        <span className="why">{why}</span>
-      </span>
-    </button>
-  );
-}
