@@ -258,6 +258,23 @@ pub async fn resume_session(state: State<'_, AppState>) -> Result<Status> {
 
 #[tauri::command]
 pub async fn disconnect(state: State<'_, AppState>, erase_local_data: bool) -> Result<Status> {
+    // Stop anything in flight *first*.
+    //
+    // A scan holds its own `Arc<Store>` and writes to it for as long as it
+    // runs — up to forty minutes on a large mailbox. Erasing underneath one
+    // wipes the database and then watches the scan refill it, so "disconnect
+    // and erase everything" quietly did not erase everything. For an app whose
+    // whole promise is that the data is yours and local, that is the worst
+    // failure available.
+    //
+    // Revoking the token without stopping the scan is bad on its own terms
+    // too: every request in flight starts failing against a dead credential.
+    for handle in [&state.scan_cancel, &state.run_cancel] {
+        if let Some(cancel) = handle.write().await.take() {
+            cancel.cancel();
+        }
+    }
+
     if let Some(session) = state.session.write().await.take() {
         session.auth.disconnect().await?;
     } else if let Some(email) = state.account()? {
@@ -1092,5 +1109,146 @@ mod tests {
     #[test]
     fn outcome_timestamps_are_real() {
         assert!(now_ms() > 1_700_000_000_000);
+    }
+}
+
+#[cfg(test)]
+mod state_machine_tests {
+    use super::*;
+    use crate::gmail::Cancel;
+
+    /// The own-address gate has to hold on the path that *acts*, not only the
+    /// one that displays. A gate that only filters the list is a gate that a
+    /// stale selection walks straight through.
+    #[tokio::test]
+    async fn a_run_refuses_your_own_address_even_if_asked_directly() {
+        let store = Store::open_in_memory().unwrap();
+        let me = "joe@gmail.com";
+        store
+            .put_messages(
+                me,
+                &[
+                    crate::model::MessageMeta {
+                        id: "spoof".into(),
+                        sender_address: "j.o.e@gmail.com".into(),
+                        sender_name: "You".into(),
+                        subject: "Your account".into(),
+                        date_ms: 1,
+                        list_unsubscribe: Some("<https://x.example/u>".into()),
+                        list_unsubscribe_post: Some("List-Unsubscribe=One-Click".into()),
+                    },
+                    crate::model::MessageMeta {
+                        id: "real".into(),
+                        sender_address: "news@shop.example".into(),
+                        sender_name: "Shop".into(),
+                        subject: "Sale".into(),
+                        date_ms: 2,
+                        list_unsubscribe: Some("<https://x.example/u>".into()),
+                        list_unsubscribe_post: Some("List-Unsubscribe=One-Click".into()),
+                    },
+                ],
+            )
+            .unwrap();
+        store.set_setting(SETTING_ACCOUNT, me).unwrap();
+        let state = AppState::new(store);
+
+        // The interface asks for both, as a stale selection would.
+        let resolved = resolve(
+            &state,
+            &[
+                "j.o.e@gmail.com".to_string(),
+                "news@shop.example".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let addresses: Vec<&str> = resolved.iter().map(|r| r.address.as_str()).collect();
+        assert_eq!(
+            addresses,
+            ["news@shop.example"],
+            "a run would have blocked the user's own mailbox"
+        );
+    }
+
+    /// Erasing must stop the scan that is writing to what is being erased.
+    ///
+    /// Without this, "disconnect and erase everything" wipes the database and
+    /// then a scan that is still running — holding its own `Arc<Store>` for up
+    /// to forty minutes — writes the user's mail straight back in. The erase
+    /// appears to work and silently does not.
+    #[tokio::test]
+    async fn erasing_stops_a_scan_that_is_still_running() {
+        let state = AppState::new(Store::open_in_memory().unwrap());
+        let scan = Cancel::new();
+        *state.scan_cancel.write().await = Some(scan.clone());
+
+        // Not calling the command directly: it needs a Tauri State wrapper.
+        // This is the part of it that has to happen, in the order it has to
+        // happen in.
+        for handle in [&state.scan_cancel, &state.run_cancel] {
+            if let Some(c) = handle.write().await.take() {
+                c.cancel();
+            }
+        }
+        state.store.erase(false).unwrap();
+
+        assert!(
+            scan.is_cancelled(),
+            "the scan kept running and will refill the database"
+        );
+        assert!(
+            state.scan_cancel.read().await.is_none(),
+            "and the handle must be cleared, or the next scan is born cancelled"
+        );
+    }
+
+    /// The same for a run, which trashes mail and would keep going against a
+    /// token that has just been revoked.
+    #[tokio::test]
+    async fn disconnecting_stops_a_run_in_flight() {
+        let state = AppState::new(Store::open_in_memory().unwrap());
+        let run = Cancel::new();
+        *state.run_cancel.write().await = Some(run.clone());
+
+        for handle in [&state.scan_cancel, &state.run_cancel] {
+            if let Some(c) = handle.write().await.take() {
+                c.cancel();
+            }
+        }
+
+        assert!(run.is_cancelled());
+    }
+
+    /// Erasing really does empty the store, for every account it holds.
+    #[tokio::test]
+    async fn erasing_leaves_nothing_behind_for_any_account() {
+        let store = Store::open_in_memory().unwrap();
+        for account in ["one@example.com", "two@example.com"] {
+            store
+                .put_messages(
+                    account,
+                    &[crate::model::MessageMeta {
+                        id: "m1".into(),
+                        sender_address: "news@shop.example".into(),
+                        sender_name: "Shop".into(),
+                        subject: "Subject lines are personal data too".into(),
+                        date_ms: 1,
+                        list_unsubscribe: Some("<https://x.example/u>".into()),
+                        list_unsubscribe_post: None,
+                    }],
+                )
+                .unwrap();
+        }
+        store.erase(false).unwrap();
+
+        for account in ["one@example.com", "two@example.com"] {
+            assert_eq!(
+                store.message_count(account).unwrap(),
+                0,
+                "a second account's mail survived the erase"
+            );
+            assert!(store.senders(account).unwrap().is_empty());
+        }
     }
 }

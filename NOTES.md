@@ -671,6 +671,49 @@ account and passes: the marker label survives create, list, classify, delete.
 The doc comment in `filters.rs` claiming verification is finally true, having
 spent a while being corrected to say it was not.
 
+## Erase everything did not erase everything
+
+Asked to go hunting, and the first thing found was the worst.
+
+`disconnect` and `erase_everything` wiped the database without stopping a scan.
+A scan holds its own `Arc<Store>` and writes to it for as long as it runs —
+forty minutes on a large mailbox. So: start a scan, go to Settings, press
+"Disconnect and erase everything", watch it succeed, and watch the scan quietly
+refill the database it just emptied. For an app whose entire promise is that
+the data is yours and local, an erase that does not erase is the worst
+available failure.
+
+It also revoked the token out from under a live scan, so every request in
+flight started failing against a dead credential.
+
+Both cancels are now taken and fired before anything is touched. Three tests.
+
+## Never your own mailbox
+
+There was no protection against unsubscribing from — or blocking — your own
+address, and it is more reachable than it sounds. Mail arrives from your own
+address routinely: aliases, notes to self, calendar invites. Spoofed spam
+forging the recipient's own address is ordinary, and it carries unsubscribe
+headers like everything else.
+
+So your address appears in the list, and blocking it writes a Gmail filter that
+archives or trashes *everything you send yourself*. On the Trash setting that
+is silent deletion of your own mail after thirty days.
+
+The gate sits next to the header gate in `Group::finish`, because that is where
+"never offer this" belongs, and `resolve` inherits it — which is the bit that
+matters, since a gate that only filters the displayed list is one a stale
+selection walks straight through. There is a test for the acting path
+specifically.
+
+Matching had to go further than `normalise_address`, which handles case and
+`+tags`: Gmail ignores dots in the local part, so `j.o.e@gmail.com` is the same
+mailbox as `joe@gmail.com`, and spoofing exploits exactly that. Dots are
+stripped for Google's domains only — everywhere else a dot is a real character
+and merging on it would fuse two different senders.
+
+There is no setting for either of these. Neither is a decision worth offering.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

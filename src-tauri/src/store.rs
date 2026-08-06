@@ -19,7 +19,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::{Error, Result};
 use crate::heuristics::{assess, SenderSignals};
-use crate::model::{describe_frequency, now_ms, MessageMeta, Outcome, OutcomeStatus, Sender};
+use crate::model::{
+    describe_frequency, normalise_address, now_ms, MessageMeta, Outcome, OutcomeStatus, Sender,
+};
 use crate::parse::parse_unsubscribe;
 
 /// How many recent subjects to keep per sender for the safety check and for
@@ -350,14 +352,14 @@ impl Store {
 
             if group.as_ref().is_some_and(|g| g.address != sender) {
                 if let Some(g) = group.take() {
-                    out.extend(g.finish(&never, &outcomes));
+                    out.extend(g.finish(&never, &outcomes, account));
                 }
             }
             let g = group.get_or_insert_with(|| Group::new(sender.clone()));
             g.add(name, subject, date_ms, lu, lup);
         }
         if let Some(g) = group.take() {
-            out.extend(g.finish(&never, &outcomes));
+            out.extend(g.finish(&never, &outcomes, account));
         }
 
         // Busiest first: that is the order in which unsubscribing pays off most.
@@ -595,10 +597,27 @@ impl Group {
         self,
         never: &std::collections::HashSet<String>,
         outcomes: &std::collections::HashMap<String, Outcome>,
+        account: &str,
     ) -> Option<Sender> {
         // The gate: no unsubscribe header, no entry in the list. Ever.
         let parsed = parse_unsubscribe(self.lu.as_deref(), self.lup.as_deref());
         if !parsed.method.is_actionable() {
+            return None;
+        }
+
+        // The second gate: never the user's own address.
+        //
+        // Mail arrives from your own address more often than it sounds — a
+        // Gmail alias, a note to self, a calendar invite — and spoofed spam
+        // forging the recipient's own address is routine, unsubscribe header
+        // and all. Any of those puts your address in this list, and blocking
+        // it writes a Gmail filter that archives or trashes *everything you
+        // send yourself*. On the Trash setting that is silent deletion of your
+        // own mail after 30 days.
+        //
+        // There is no interface for this and there should not be: it is not a
+        // decision worth offering.
+        if same_mailbox(&self.address, account) {
             return None;
         }
 
@@ -656,6 +675,26 @@ fn status_from_str(s: &str) -> OutcomeStatus {
         "could_not_automate" => OutcomeStatus::CouldNotAutomate,
         _ => OutcomeStatus::Failed,
     }
+}
+
+/// Whether two addresses are the same mailbox, as Google would judge it.
+///
+/// Beyond case and `+tags`, which `normalise_address` already handles: Gmail
+/// ignores dots in the local part, so `j.o.e@gmail.com` and `joe@gmail.com` are
+/// one mailbox. Spoofed mail exploits exactly that. Dots are only stripped for
+/// Google's own domains, because everywhere else they are significant and
+/// treating them otherwise would merge two real, different senders.
+pub fn same_mailbox(a: &str, b: &str) -> bool {
+    fn key(addr: &str) -> String {
+        let norm = normalise_address(addr);
+        match norm.split_once('@') {
+            Some((local, domain)) if domain == "gmail.com" || domain == "googlemail.com" => {
+                format!("{}@gmail.com", local.replace('.', ""))
+            }
+            _ => norm,
+        }
+    }
+    !a.is_empty() && !b.is_empty() && key(a) == key(b)
 }
 
 #[cfg(test)]
@@ -1208,5 +1247,86 @@ mod tests {
         assert_eq!(senders.len(), 1, "must be shown, not hidden");
         assert!(senders[0].assessment.caution, "must be flagged");
         assert!(!senders[0].assessment.reasons.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod own_address_tests {
+    use super::*;
+
+    fn from(sender: &str) -> MessageMeta {
+        MessageMeta {
+            id: format!("id-{sender}"),
+            sender_address: sender.into(),
+            sender_name: "Someone".into(),
+            subject: "Hello".into(),
+            date_ms: 1,
+            list_unsubscribe: Some("<https://example.com/u>".into()),
+            list_unsubscribe_post: Some("List-Unsubscribe=One-Click".into()),
+        }
+    }
+
+    /// Blocking your own address writes a filter that eats everything you send
+    /// yourself. Spoofed mail forging the recipient's own address is routine
+    /// and carries unsubscribe headers, so this is reachable without anything
+    /// unusual happening.
+    #[test]
+    fn your_own_address_is_never_offered() {
+        let store = Store::open_in_memory().unwrap();
+        let me = "joe@gmail.com";
+        store
+            .put_messages(me, &[from("joe@gmail.com"), from("news@shop.example")])
+            .unwrap();
+
+        let senders = store.senders(me).unwrap();
+        let addresses: Vec<&str> = senders.iter().map(|s| s.address.as_str()).collect();
+        assert_eq!(
+            addresses,
+            ["news@shop.example"],
+            "your own address leaked in"
+        );
+    }
+
+    #[test]
+    fn nor_an_alias_of_it() {
+        let store = Store::open_in_memory().unwrap();
+        let me = "joe@gmail.com";
+        // Every one of these is the same Gmail mailbox.
+        for spoof in [
+            "Joe@Gmail.com",
+            "j.o.e@gmail.com",
+            "joe+shopping@gmail.com",
+            "joe@googlemail.com",
+        ] {
+            store.put_messages(me, &[from(spoof)]).unwrap();
+        }
+        store
+            .put_messages(me, &[from("news@shop.example")])
+            .unwrap();
+
+        let senders = store.senders(me).unwrap();
+        assert_eq!(
+            senders.len(),
+            1,
+            "an alias got through: {:?}",
+            senders.iter().map(|s| &s.address).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn dots_are_only_ignored_on_googles_own_domains() {
+        // Everywhere else a dot is a real character and two addresses that
+        // differ by one are two different people.
+        assert!(same_mailbox("j.o.e@gmail.com", "joe@gmail.com"));
+        assert!(same_mailbox("j.o.e@googlemail.com", "joe@gmail.com"));
+        assert!(!same_mailbox("j.o.e@fastmail.com", "joe@fastmail.com"));
+        assert!(!same_mailbox("joe@example.com", "joe@other.com"));
+    }
+
+    #[test]
+    fn an_empty_account_matches_nothing() {
+        // Otherwise a missing account would silently gate every sender out.
+        assert!(!same_mailbox("", "joe@gmail.com"));
+        assert!(!same_mailbox("joe@gmail.com", ""));
     }
 }
