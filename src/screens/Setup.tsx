@@ -230,7 +230,7 @@ export default function Setup({
                     "Open the page below and press Create client.",
                     'Application type: choose Desktop app.',
                     'Name: anything. Press Create.',
-                    "Google shows you two long strings. Copy each one into the boxes below.",
+                    "Pick Desktop app, give it any name, and press Create. Then press Download JSON, open that file, and paste all of it into either box below — both fill in by themselves.",
                   ]}
                 />
                 <OpenButton
