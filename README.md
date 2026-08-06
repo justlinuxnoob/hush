@@ -107,7 +107,7 @@ them to do yourself.**
 | | What Hush does |
 |---|---|
 | **One-click** (RFC 8058) | Sends a `POST` with body `List-Unsubscribe=One-Click`. Fully automatic, and about 93% of senders in practice. |
-| **`mailto:`** | Sends the unsubscribe email through Gmail, if you granted the send permission. If you didn't, it's blocked instead. |
+| **`mailto:`** | **Blocked.** Doing it properly would mean sending email as you, which is a bigger permission than everything else Hush asks for combined — for about 6% of senders that blocking handles anyway. |
 | **A plain link** | **Blocked.** A bare link might be a one-tap unsubscribe, a preference centre, a login wall or a confirmation page — nothing can tell which, so Hush doesn't guess and doesn't ask you to go and find out. |
 
 That last row is the important one. An earlier version listed those senders with
@@ -256,15 +256,15 @@ what's on this computer.
 | `gmail.readonly` | Always | Reading message metadata. Cannot change anything. |
 | `gmail.modify` | For binning old mail, and for putting mail back when you unblock | Moving mail to and from Trash, and adding the `Hush` label. **Not** permanent deletion — that is a different scope, and Hush never asks for it. |
 | `gmail.settings.basic` | For blocking, and for the Blocked senders screen | Creating, reading and deleting Gmail filters. Reading them back needs no wider permission than making them, so managing your blocks costs you nothing extra. |
-| `gmail.send` | Optional | Sending the handful of unsubscribes that only work by email. Decline it and those senders are blocked instead — nothing is left for you to do either way. |
 
 Google presents these as separate tick-boxes on its own consent page, so you can
 decline any of them there. Hush trusts what Google actually granted rather than
 what it asked for, so declining leaves that feature switched off rather than
 failing later.
 
-Notably absent: `https://mail.google.com/`, the scope that permits permanent
-deletion. Hush never requests it.
+Notably absent, and deliberately: `gmail.send`, which would let Hush send email
+as you, and `https://mail.google.com/`, which permits permanent deletion. Hush
+requests neither, so it is not capable of either.
 
 ## Getting your Google credentials
 

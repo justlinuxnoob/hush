@@ -57,7 +57,6 @@ export interface Status {
   connected: boolean;
   email: string | null;
   has_credentials: boolean;
-  can_send: boolean;
   can_delete: boolean;
   can_block: boolean;
   keychain_available: boolean;

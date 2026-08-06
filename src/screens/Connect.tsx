@@ -9,8 +9,12 @@ import { errorCode, errorMessage, type Status } from "../types";
  *
  * This asks for everything Hush can use, in one trip, and explains each one —
  * because Google's own consent screen presents them as separate checkboxes the
- * user can decline individually. Asking for three permissions here does not
- * impose three; it surfaces three choices in the place they are actually made.
+ * user can decline individually. Asking for two permissions here does not
+ * impose two; it surfaces the choices in the place they are actually made.
+ *
+ * There were three. `gmail.send` went in 0.11.0: sending mail as somebody is
+ * the largest thing this app could ask for, and it existed to reach about six
+ * per cent of senders that blocking handles anyway.
  *
  * An earlier version asked only for read access and requested the rest later,
  * at the moment each was wanted. That reads well in principle and is worse in
@@ -34,7 +38,7 @@ export default function Connect({
     setProblem(null);
     setBusy(true);
     try {
-      onConnected(await api.connect(everything, everything, everything));
+      onConnected(await api.connect(everything, everything));
     } catch (e) {
       // Giving up is a choice, not a failure, so it earns no error message.
       if (errorCode(e) !== "cancelled") setProblem(errorMessage(e));
@@ -66,8 +70,9 @@ export default function Connect({
         <div className="panel stack stack-3">
           <h3>What Google will ask you to approve</h3>
           <p className="muted small">
-            Three separate tick-boxes on Google's own page. You can decline any
-            of them there and Hush will work without — it just does less.
+            Two separate tick-boxes on Google's own page, on top of reading.
+            You can decline either one there and Hush still works — it just does
+            less.
           </p>
           <div className="stack stack-2">
             <span className="muted small">
@@ -85,6 +90,12 @@ export default function Connect({
               <strong style={{ color: "var(--ink)" }}>Change your settings</strong>{" "}
               — so it can add a Gmail filter that blocks a sender for good. This
               is the one that makes "they still email me" impossible.
+            </span>
+            <span className="muted small">
+              Hush never asks to <strong style={{ color: "var(--ink)" }}>send
+              email as you</strong>, and never asks for the permission that
+              would let it delete your mail permanently. Neither is on the list
+              because neither is in the app.
             </span>
           </div>
         </div>
@@ -122,7 +133,7 @@ export default function Connect({
             </div>
           </div>
         ) : (
-          // Sticky, because explaining three permissions properly makes this
+          // Sticky, because explaining the permissions properly makes this
           // screen taller than a small window, and the button you came here to
           // press should never be somewhere you have to go looking for.
           <div className="decide stack stack-3">

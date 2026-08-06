@@ -32,8 +32,9 @@ const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 const TOKENINFO_ENDPOINT: &str = "https://oauth2.googleapis.com/tokeninfo";
 const REVOKE_ENDPOINT: &str = "https://oauth2.googleapis.com/revoke";
 
+/// Read-only access to message metadata. Always requested; nothing works
+/// without it, and on its own it cannot change a thing.
 pub const SCOPE_READONLY: &str = "https://www.googleapis.com/auth/gmail.readonly";
-pub const SCOPE_SEND: &str = "https://www.googleapis.com/auth/gmail.send";
 /// Needed to move mail to Trash. Google offers nothing narrower — there is no
 /// "trash only" permission — so this is requested only when the user has asked
 /// for the tidy-up feature, never by default.
@@ -803,16 +804,16 @@ mod tests {
     }
 
     #[test]
-    fn scopes_are_space_separated_when_send_is_requested() {
+    fn several_scopes_are_space_separated_in_the_url() {
         let url = build_auth_url(
             "cid",
             "http://127.0.0.1:1",
-            &[SCOPE_READONLY, SCOPE_SEND],
+            &[SCOPE_READONLY, SCOPE_MODIFY],
             "c",
             "s",
         );
         assert!(url.contains("gmail%2Ereadonly%20https"));
-        assert!(url.contains("gmail%2Esend"));
+        assert!(url.contains("gmail%2Emodify"));
     }
 
     #[tokio::test]

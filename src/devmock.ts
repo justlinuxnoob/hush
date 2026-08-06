@@ -32,7 +32,6 @@ let status: Status = {
   block_action: "archive",
   backlog_action: "archive",
   days_left: 2,
-  can_send: false,
   can_delete: false,
   can_block: false,
   keychain_available: true,
@@ -252,7 +251,6 @@ const handlers: Record<string, (a: Args) => unknown> = {
     status = {
       ...status,
       connected: true,
-      can_send: status.can_send || Boolean(a.allowSend),
       can_delete: status.can_delete || Boolean(a.allowDelete),
       can_block: status.can_block || Boolean(a.allowBlock),
     };

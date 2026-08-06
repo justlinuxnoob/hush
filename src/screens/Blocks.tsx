@@ -59,7 +59,7 @@ export default function Blocks({
     setProblem(null);
     setAsking(true);
     try {
-      onStatusChange(await api.connect(status.can_send, status.can_delete, true));
+      onStatusChange(await api.connect(status.can_delete, true));
     } catch (e) {
       setProblem(errorMessage(e));
     } finally {

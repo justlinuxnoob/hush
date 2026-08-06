@@ -48,7 +48,6 @@ pub const TESTING_TOKEN_DAYS: i64 = 7;
 /// A snapshot of the session, held by value so no lock travels with it.
 pub struct SessionParts {
     pub gmail: Arc<GmailClient>,
-    pub can_send: bool,
     pub can_delete: bool,
     pub can_block: bool,
 }
@@ -59,7 +58,6 @@ pub struct Session {
     pub auth: Arc<GoogleAuth>,
     pub gmail: Arc<GmailClient>,
     pub storage: TokenStorage,
-    pub can_send: bool,
     /// Whether Google granted the permission needed to move mail to Trash.
     pub can_delete: bool,
     /// Whether Google granted the permission needed to create a filter.
@@ -139,7 +137,6 @@ impl AppState {
         let s = guard.as_ref().ok_or(Error::Unauthorized)?;
         Ok(SessionParts {
             gmail: s.gmail.clone(),
-            can_send: s.can_send,
             can_delete: s.can_delete,
             can_block: s.can_block,
         })

@@ -94,8 +94,6 @@ pub struct PlannedAction {
 
 pub struct Executor {
     http: reqwest::Client,
-    gmail: Option<Arc<GmailClient>>,
-    from_address: String,
 }
 
 /// Progress while a run is under way.
@@ -228,7 +226,7 @@ pub async fn block_senders(
 }
 
 impl Executor {
-    pub fn new(from_address: String) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!("hush/", env!("CARGO_PKG_VERSION")))
             .timeout(HTTP_TIMEOUT)
@@ -238,16 +236,7 @@ impl Executor {
             // No cookie jar: nothing about one unsubscribe should be carried
             // into the next, and RFC 8058 forbids cookies outright.
             .build()?;
-        Ok(Self {
-            http,
-            gmail: None,
-            from_address,
-        })
-    }
-
-    pub fn with_gmail(mut self, gmail: Arc<GmailClient>) -> Self {
-        self.gmail = Some(gmail);
-        self
+        Ok(Self { http })
     }
 
     /// Describe what `run` would do, without doing any of it.
@@ -260,14 +249,6 @@ impl Executor {
             UnsubMethod::OneClick { url } => (
                 "Unsubscribe automatically".to_string(),
                 format!("POST {url}\nContent-Type: application/x-www-form-urlencoded\n\n{ONE_CLICK_BODY}"),
-            ),
-            UnsubMethod::Mailto { address, subject, .. } if self.gmail.is_some() => (
-                "Send an unsubscribe email".to_string(),
-                format!(
-                    "Send mail as {} to {address}\nSubject: {}",
-                    self.from_address,
-                    subject.as_deref().unwrap_or("Unsubscribe")
-                ),
             ),
             UnsubMethod::Mailto { .. } | UnsubMethod::ManualLink { .. } => (
                 "Blocked instead".to_string(),
@@ -364,8 +345,9 @@ impl Executor {
             .iter()
             .filter(|m| match m {
                 UnsubMethod::OneClick { .. } => true,
-                UnsubMethod::Mailto { .. } => self.gmail.is_some(),
-                UnsubMethod::ManualLink { .. } | UnsubMethod::None => false,
+                UnsubMethod::Mailto { .. } | UnsubMethod::ManualLink { .. } | UnsubMethod::None => {
+                    false
+                }
             })
             .collect();
 
@@ -453,40 +435,19 @@ impl Executor {
                 Err(e) => Err(e),
             },
 
-            UnsubMethod::Mailto {
-                address,
-                subject,
-                body,
-            } => {
-                let subject = subject.as_deref().unwrap_or("Unsubscribe");
-                let body = body
-                    .as_deref()
-                    .unwrap_or("Please unsubscribe me from this list.");
-                {
-                    {
-                        let gmail = self.gmail.as_ref().ok_or_else(|| {
-                            Error::Setup(
-                                "Hush needs permission to send mail for this. \
-                                 Reconnect your account to grant it."
-                                    .into(),
-                            )
-                        })?;
-                        let raw = build_rfc5322(&self.from_address, address, subject, body)?;
-                        gmail.send_raw(&raw).await?;
-                        Ok(out(OutcomeStatus::Sent, "Unsubscribe email sent", None))
-                    }
-                }
-            }
-
-            // Never reached: a bare link is not an automatic route and is
-            // filtered out before this point.
-            UnsubMethod::ManualLink { .. } => Err(Error::Other(
-                "This sender's unsubscribe only works in a browser.".into(),
-            )),
-
-            UnsubMethod::None => Err(Error::Other(
-                "This sender doesn't offer a way to unsubscribe.".into(),
-            )),
+            // `mailto:` is not attempted, and there is no permission that
+            // would make it so.
+            //
+            // It used to be, through `gmail.send`. Sending mail as somebody is
+            // the largest thing this app could ask Google for, it reached about
+            // six per cent of senders, and the code path was never once run
+            // against a real mailbox. Blocking reaches those same senders,
+            // guarantees the outcome rather than requesting it, and needs no
+            // permission Hush is not already using. So the feature went and the
+            // permission went with it.
+            UnsubMethod::Mailto { .. } | UnsubMethod::ManualLink { .. } | UnsubMethod::None => Err(
+                Error::Other("Nothing can be sent automatically for this sender.".into()),
+            ),
         }
     }
 
@@ -928,65 +889,8 @@ fn is_private(ip: &IpAddr) -> bool {
 /// they are untrusted input. Anything that could start a new header line is
 /// stripped — otherwise a crafted `subject=` could append a `Bcc:` and turn the
 /// user's own account into a relay.
-fn build_rfc5322(from: &str, to: &str, subject: &str, body: &str) -> Result<String> {
-    let to = strip_header_breaks(to);
-    let subject = strip_header_breaks(subject);
-    let from = strip_header_breaks(from);
-
-    // The address is checked rather than merely sanitised. A `To` line that has
-    // had a newline squashed out of it — `leave@x.example Bcc: victim@y` — is no
-    // longer an injection, but it is also not an address, and sending it would
-    // be guessing at what the sender meant.
-    if !is_single_address(&to) {
-        return Err(Error::Other(
-            "That sender's unsubscribe address doesn't look valid.".into(),
-        ));
-    }
-
-    Ok(format!(
-        "From: {from}\r\n\
-         To: {to}\r\n\
-         Subject: {subject}\r\n\
-         MIME-Version: 1.0\r\n\
-         Content-Type: text/plain; charset=\"utf-8\"\r\n\
-         \r\n\
-         {body}\r\n"
-    ))
-}
-
 /// Replace everything that could break out of a header field with a space.
 ///
-/// A space rather than nothing: removing the break outright would silently
-/// weld two lines into one word, turning a visible oddity into a hidden one.
-fn strip_header_breaks(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c == '\r' || c == '\n' || c == '\0' {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
-
-/// One plain address, nothing else. No display name, no second recipient, no
-/// stray header text that survived sanitising.
-fn is_single_address(addr: &str) -> bool {
-    let mut parts = addr.split('@');
-    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    !local.is_empty()
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
-        && !addr.chars().any(|c| c.is_whitespace() || c.is_control())
-        && !addr.contains([',', ':', ';', '<', '>', '"'])
-}
-
 fn link_of(method: &UnsubMethod) -> Option<String> {
     match method {
         UnsubMethod::OneClick { url } | UnsubMethod::ManualLink { url } => Some(url.clone()),
@@ -1022,7 +926,7 @@ mod tests {
     }
 
     fn exec() -> Executor {
-        Executor::new("me@example.com".into()).unwrap()
+        Executor::new().unwrap()
     }
 
     #[test]
@@ -1309,24 +1213,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn sending_via_gmail_without_permission_fails_clearly() {
-        let e = Executor::new("me@example.com".into()).unwrap();
-        let report = e
-            .run(
-                &[req(UnsubMethod::Mailto {
-                    address: "leave@acme.example".into(),
-                    subject: None,
-                    body: None,
-                })],
-                &crate::gmail::Cancel::new(),
-            )
-            .await;
-        // Without the send permission a mailto is not automatic, so the sender
-        // is marked for blocking rather than handed to the user.
-        assert_eq!(report.outcomes[0].status, OutcomeStatus::CouldNotAutomate);
-    }
-
     // --- destination vetting ----------------------------------------------
 
     #[tokio::test]
@@ -1417,102 +1303,6 @@ mod tests {
     }
 
     // --- header injection --------------------------------------------------
-
-    /// The header field names in a built message, in order.
-    fn header_names(raw: &str) -> Vec<String> {
-        raw.split("\r\n\r\n")
-            .next()
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|l| l.split_once(':').map(|(n, _)| n.to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn a_crafted_subject_cannot_add_headers() {
-        // A sender controls the `subject=` in their own List-Unsubscribe. Left
-        // alone, this would append a Bcc and turn the account into a relay.
-        let raw = build_rfc5322(
-            "me@example.com",
-            "leave@acme.example",
-            "Unsub\r\nBcc: victim@example.com\r\nX-Evil: yes",
-            "please",
-        )
-        .unwrap();
-
-        // The crafted text survives as visible subject wording — which is fine,
-        // and honest — but it must not have become a header of its own.
-        assert_eq!(
-            header_names(&raw),
-            ["From", "To", "Subject", "MIME-Version", "Content-Type"]
-        );
-        assert_eq!(raw.matches("\r\n\r\n").count(), 1, "one header/body split");
-    }
-
-    #[test]
-    fn a_crafted_address_is_refused_outright() {
-        // Squashing the newline would leave "leave@x Bcc: victim@y" as the To
-        // line: not an injection, but not an address either.
-        let err = build_rfc5322(
-            "me@example.com",
-            "leave@acme.example\r\nBcc: victim@example.com",
-            "Unsubscribe",
-            "please",
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("doesn't look valid"));
-    }
-
-    #[test]
-    fn only_a_bare_single_address_is_accepted() {
-        for good in ["a@b.com", "leave+tag@lists.example.org", "x.y@a.b.co.uk"] {
-            assert!(is_single_address(good), "{good} should be accepted");
-        }
-        for bad in [
-            "",
-            "not-an-address",
-            "missing@domain",
-            "a@b.com, c@d.com",
-            "Name <a@b.com>",
-            "a@b.com Bcc: c@d.com",
-            "a@b.com\u{7f}",
-            "two@at@signs.com",
-            "@nolocal.com",
-            "a@.leadingdot.com",
-        ] {
-            assert!(!is_single_address(bad), "{bad:?} should be refused");
-        }
-        for bad in ["not-an-address", "", "a@b.com, c@d.com"] {
-            assert!(build_rfc5322("me@example.com", bad, "s", "b").is_err());
-        }
-    }
-
-    #[test]
-    fn a_break_becomes_a_space_rather_than_vanishing() {
-        // Deleting the break would weld words together and hide the tampering.
-        // CRLF is two characters, so it leaves two spaces — untidy, but visible,
-        // which is the point.
-        assert_eq!(strip_header_breaks("one\r\ntwo"), "one  two");
-        assert_eq!(strip_header_breaks("one\ntwo"), "one two");
-        assert_eq!(strip_header_breaks("  padded\n "), "padded");
-        assert!(!strip_header_breaks("a\r\nb").contains(['\r', '\n']));
-    }
-
-    #[test]
-    fn a_well_formed_message_has_the_expected_shape() {
-        let raw = build_rfc5322(
-            "me@example.com",
-            "leave@acme.example",
-            "Unsubscribe",
-            "please",
-        )
-        .unwrap();
-        assert!(raw.starts_with("From: me@example.com\r\n"));
-        assert!(raw.contains("To: leave@acme.example\r\n"));
-        assert!(raw.contains("Subject: Unsubscribe\r\n"));
-        assert!(raw.contains("charset=\"utf-8\""));
-        assert!(raw.ends_with("please\r\n"));
-    }
 
     // --- tidying up --------------------------------------------------------
 

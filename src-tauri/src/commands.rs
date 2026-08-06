@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auth::{
-    ClientCredentials, GoogleAuth, Keychain, TokenStorage, SCOPE_MODIFY, SCOPE_READONLY, SCOPE_SEND,
+    ClientCredentials, GoogleAuth, Keychain, TokenStorage, SCOPE_MODIFY, SCOPE_READONLY,
 };
 use crate::error::{Error, Result};
 use crate::filters::{ManagedFilter, RemovalPreview, RemovalReport};
@@ -35,7 +35,6 @@ pub struct Status {
     pub connected: bool,
     pub email: Option<String>,
     pub has_credentials: bool,
-    pub can_send: bool,
     /// Whether Hush may move old mail to Trash. Opt-in, and off by default.
     pub can_delete: bool,
     /// Whether Hush may create a Gmail filter to stop future mail outright.
@@ -86,7 +85,6 @@ pub async fn status(state: State<'_, AppState>) -> Result<Status> {
         connected: session.is_some(),
         email,
         has_credentials: state.credentials()?.is_some(),
-        can_send: session.as_ref().is_some_and(|s| s.can_send),
         can_delete: session.as_ref().is_some_and(|s| s.can_delete),
         can_block: session.as_ref().is_some_and(|s| s.can_block),
         keychain_available: Keychain::is_available(),
@@ -166,7 +164,6 @@ pub async fn save_credentials(
 #[tauri::command]
 pub async fn connect(
     state: State<'_, AppState>,
-    allow_send: bool,
     allow_delete: bool,
     allow_block: bool,
 ) -> Result<Status> {
@@ -177,9 +174,6 @@ pub async fn connect(
 
     let auth = GoogleAuth::new(creds)?;
     let mut scopes: Vec<&str> = vec![SCOPE_READONLY];
-    if allow_send {
-        scopes.push(SCOPE_SEND);
-    }
     if allow_delete {
         scopes.push(SCOPE_MODIFY);
     }
@@ -214,7 +208,6 @@ pub async fn connect(
 
     // Trust what Google actually granted, not what we asked for. A user can
     // approve some permissions and decline others on the consent screen.
-    let can_send = granted.contains("gmail.send");
     let can_delete = granted.contains("gmail.modify");
     let can_block = granted.contains("gmail.settings.basic");
     // Remembered so a relaunch does not march the user back through Google's
@@ -229,7 +222,6 @@ pub async fn connect(
         auth,
         gmail,
         storage,
-        can_send,
         can_delete,
         can_block,
     });
@@ -272,7 +264,6 @@ pub async fn resume_session(state: State<'_, AppState>) -> Result<Status> {
                 auth,
                 gmail,
                 storage: TokenStorage::Keychain,
-                can_send: granted.contains("gmail.send"),
                 can_delete: granted.contains("gmail.modify"),
                 can_block: granted.contains("gmail.settings.basic"),
             });
@@ -497,14 +488,7 @@ pub async fn plan_unsubscribe(
     selection: Selection,
 ) -> Result<Vec<PlannedAction>> {
     let requests = resolve(&state, &selection.addresses).await?;
-    let mut executor = Executor::new(state.account_or_stored().await.unwrap_or_default())?;
-    // Attached so the plan describes a `mailto:` sender the way the run will
-    // actually treat it — sent for you, or blocked instead.
-    if let Ok(session) = state.session_parts().await {
-        if session.can_send {
-            executor = executor.with_gmail(session.gmail.clone());
-        }
-    }
+    let executor = Executor::new()?;
     Ok(executor.plan(&requests))
 }
 
@@ -532,16 +516,7 @@ pub async fn run_unsubscribe(
     let account = state.account_or_stored().await?;
     let requests = resolve(&state, &selection.addresses).await?;
 
-    let mut executor = Executor::new(account.clone())?;
-    // Sending is optional and always was. Without it, the handful of senders
-    // that only accept an unsubscribe by email are reported as un-automatable
-    // and blocked instead — which is the point: not being able to do something
-    // automatically is never a reason to hand the user a job.
-    if let Ok(session) = state.session_parts().await {
-        if session.can_send {
-            executor = executor.with_gmail(session.gmail.clone());
-        }
-    }
+    let executor = Executor::new()?;
 
     let cancel = Cancel::new();
     *state.run_cancel.write().await = Some(cancel.clone());

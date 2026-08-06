@@ -125,7 +125,7 @@ export default function Confirm({
     setProblem(null);
     setAsking(true);
     try {
-      const s = await api.connect(status.can_send, true, status.can_block);
+      const s = await api.connect(true, status.can_block);
       onStatusChange(s);
       // They asked for it, so preselect the thing they asked for.
       if (s.can_delete) setBinBacklog(true);
@@ -142,7 +142,7 @@ export default function Confirm({
     setProblem(null);
     setAsking(true);
     try {
-      const s = await api.connect(status.can_send, status.can_delete, true);
+      const s = await api.connect(status.can_delete, true);
       onStatusChange(s);
       if (s.can_block) setFuture("both");
     } catch (e) {
@@ -194,24 +194,18 @@ export default function Confirm({
             detail="Hush tells the sender directly. Nothing for you to do."
             senders={automatic}
           />
-          <Group
-            n={status.can_send ? byEmail.length : 0}
-            title="Unsubscribed by email"
-            detail="Hush sends a short unsubscribe message from your account."
-            senders={byEmail}
-          />
           {/* Everything Hush cannot do on its own lands here, and the answer is
               always a filter rather than a list of links. There is no version
               of this screen that ends with the user having a job. */}
           <Group
-            n={manual.length + (status.can_send ? 0 : byEmail.length)}
+            n={manual.length + byEmail.length}
             title="Blocked instead"
             detail={
               status.can_block
                 ? "Nothing can be sent automatically for these, so a Gmail filter keeps their mail out of your inbox. Nothing for you to do."
                 : "Nothing can be sent automatically for these. Allow Hush to block senders below and they're handled too."
             }
-            senders={status.can_send ? manual : [...manual, ...byEmail]}
+            senders={[...manual, ...byEmail]}
           />
         </div>
 

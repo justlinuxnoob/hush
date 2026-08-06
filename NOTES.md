@@ -842,6 +842,39 @@ app; the rule was applied to the loudest case and the quiet ones were never
 revisited. "We fixed that" is a claim with a shelf life, and the only way to
 check it is to go back and look for the same shape somewhere else.
 
+## Deleting the permission, not just the chore
+
+0.10.0 removed the `mailto:` hand-off — the bit where the user's own mail app
+opened and they pressed send. What it kept was `mailto:` sent automatically
+through `gmail.send`, on the reasoning that automatic is not homework, which is
+true and was the wrong question.
+
+The right question is what it costs. Measured on a real account: **160 of 2,627
+messages are `mailto:`-only, about 6%** — and those senders get blocked instead,
+which is the stronger outcome anyway, since a filter does not depend on the
+sender cooperating.
+
+Against that: `gmail.send` lets an app send email as you. It is the largest
+thing Hush could ask Google for, larger than reading, trashing and filtering put
+together in how it reads on a consent screen. And the code path behind it had
+never once run against a real mailbox — the only untested path in the app, kept
+alive for 6% of a weaker action.
+
+So the feature went and the permission went with it. Gone with them:
+`send_raw`, the RFC 5322 builder, the header-injection guards that existed only
+to make that builder safe, `can_send` through four files, and a tick-box on the
+consent screen. The app now asks for three scopes instead of four and can state
+plainly that it cannot send mail as you.
+
+**A near miss worth recording.** Removing the tests for the deleted builder, I
+matched on a regex instead of on names, and it ate 22 test functions — including
+`requests_to_the_local_network_are_refused` and `plain_http_is_refused`, the SSRF
+guards, which have nothing to do with sending email. Caught only because the
+test count dropped from 169 to 146 and three helper functions went unused.
+
+The suite is not a thing to tidy with a pattern. Restored from git and redone by
+name, and the count now reads 163 — six genuinely dead tests, one renamed.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

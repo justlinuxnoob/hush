@@ -527,22 +527,6 @@ impl GmailClient {
         .map(|_| ())
     }
 
-    /// Send a raw RFC 5322 message. Only used for `mailto:` unsubscribes, and
-    /// only when the user has granted the send permission.
-    pub async fn send_raw(&self, raw_rfc822: &str) -> Result<()> {
-        use base64::Engine as _;
-        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_rfc822);
-        let url = format!("{}/gmail/v1/users/me/messages/send", self.base);
-        let payload = serde_json::json!({ "raw": encoded });
-        let cancel = Cancel::new();
-
-        self.request(crate::ratelimit::COST_MESSAGES_SEND, &cancel, |token| {
-            self.http.post(&url).bearer_auth(token).json(&payload)
-        })
-        .await
-        .map(|_| ())
-    }
-
     async fn get(
         &self,
         url: &str,
