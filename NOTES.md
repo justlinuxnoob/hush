@@ -875,6 +875,32 @@ test count dropped from 169 to 146 and three helper functions went unused.
 The suite is not a thing to tidy with a pattern. Restored from git and redone by
 name, and the count now reads 163 — six genuinely dead tests, one renamed.
 
+## The screen nobody looked at
+
+Twelve releases in a day, and the first screen — the one that decides whether
+anyone reaches the second — was never touched. Prompted by the only feedback
+that could have caught it: "the start page looks entirely the same lmfao."
+
+It was. Every change that day went into the list, blocked senders, the
+troubleshooter, confirm. Welcome got one heading reworded and one phrase
+shortened, which is indistinguishable from nothing.
+
+Screenshotting it showed why that mattered. Four dense paragraphs under the
+heading **"What it will never do"** — opening on a list of negatives before the
+app had said what it was for, every claim true and none of it readable. The
+exact "like a word document" complaint, sitting on the highest-traffic screen
+in the app.
+
+The promises are the reason to trust it, so they stay. Their shape changed: one
+line each in a two-by-two grid instead of four paragraphs. Content fits without
+scrolling, and it reads as designed rather than written.
+
+Two lessons, and the second is the real one. Attention follows whoever is
+complaining, and nobody had complained about the welcome screen because nobody
+gets far enough to complain about it — the people it fails are gone. And: it
+took a screenshot again. That is three separate times now that looking found
+something reading could not.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically
