@@ -820,24 +820,20 @@ input.mono {
  * window size and font settings, which we do not get to know. */
 .decide {
   position: sticky;
-  bottom: 0;
+  bottom: calc(var(--step) * 2);
   z-index: 2;
-  /* Solid, not a gradient.
-     A gradient reads nicely in a mock-up and fails in use: the transparent
-     end lets whatever is scrolling past show straight through the bar, so
-     the confirm screen rendered its next option underneath its own buttons
-     and Settings rendered a paragraph behind its own title. Only visible by
-     screenshotting the thing, which is the lesson. */
-  background: var(--paper);
-  /* Soft shadow only, no hairline. A 1px rule draws a line across the page
-     even when the content fits and nothing is scrolling under it — which on
-     the welcome screen read as a stray divider under the last paragraph. The
-     shadow is invisible against flat paper and only appears once something
-     passes beneath. */
-  box-shadow: 0 -12px 16px -12px #1b1a1526;
-  padding-top: calc(var(--step) * 3);
-  padding-bottom: calc(var(--step) * 3);
-  margin-top: calc(var(--step) * 3);
+  /* A real floating bar, not a band of page colour.
+     It first had a gradient (content scrolled through it), then a hairline
+     (which drew a stray line across short screens where nothing scrolls), then
+     nothing at all — at which point it stopped reading as a bar. Giving it its
+     own surface and an outline works in every case: the buttons are clearly on
+     something, whether or not anything passes beneath. */
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: calc(var(--step) * 2.5) calc(var(--step) * 3);
+  margin-top: calc(var(--step) * 4);
 }
 
 /* The mirror of it: a header whose Close button is the way out of a long page,
