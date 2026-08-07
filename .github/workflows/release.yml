@@ -88,6 +88,17 @@ jobs:
             \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \
                -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) \
             -exec cp {} out/ \;
+
+          # The Windows .exe above is an NSIS *installer*. Someone who asked for
+          # a portable build wants the opposite of that, and Tauri has already
+          # produced it — the standalone binary that the installer wraps. It
+          # needs no install, no registry, and with a hush-portable.txt beside
+          # it keeps its data in the same folder.
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            exe="src-tauri/target/${{ matrix.target }}/release/hush.exe"
+            [ -f "$exe" ] && cp "$exe" "out/Hush-portable-${{ matrix.target }}.exe"
+          fi
+
           ls -la out
 
       - name: Checksums

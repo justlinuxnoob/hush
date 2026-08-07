@@ -987,10 +987,7 @@ pub async fn open_link(url: String) -> Result<()> {
 /// actually said, and until now nothing recorded that.
 #[tauri::command]
 pub async fn open_data_folder(app: AppHandle) -> Result<()> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| Error::Storage(format!("couldn't find Hush's folder: {e}")))?;
+    let dir = data_dir(&app).ok_or_else(|| Error::Storage("couldn't find Hush's folder".into()))?;
     tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| Error::Other(format!("Couldn't open that folder: {e}")))
 }
@@ -1006,12 +1003,19 @@ pub async fn erase_everything(state: State<'_, AppState>) -> Result<Status> {
     disconnect(state, true).await
 }
 
-/// Build the store in the platform's app-data directory.
+/// Where everything Hush writes goes.
+///
+/// Beside the executable in portable mode, otherwise the platform's usual
+/// app-data folder. One function so the database, the log and the "open the
+/// folder" button can never disagree about where the data is.
+pub fn data_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    crate::portable::data_dir().or_else(|| app.path().app_data_dir().ok())
+}
+
+/// Build the store wherever the data lives.
 pub fn open_store(app: &AppHandle) -> Result<Store> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| Error::Storage(format!("couldn't find a place to save data: {e}")))?;
+    let dir =
+        data_dir(app).ok_or_else(|| Error::Storage("couldn't find a place to save data".into()))?;
     Store::open(&dir.join("hush.sqlite3"))
 }
 

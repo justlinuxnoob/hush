@@ -24,6 +24,7 @@ pub mod heuristics;
 pub mod logging;
 pub mod model;
 pub mod parse;
+pub mod portable;
 pub mod ratelimit;
 pub mod scan;
 pub mod state;
@@ -52,9 +53,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // Before anything else, so a failure during setup is recorded too.
-            if let Ok(dir) = app.path().app_data_dir() {
+            // Portable mode puts this beside the executable rather than in the
+            // user's home, so running from a stick leaves the machine clean.
+            if let Some(dir) = commands::data_dir(app.handle()) {
                 let _ = std::fs::create_dir_all(&dir);
                 logging::init(&dir);
+                if crate::portable::data_dir().is_some() {
+                    log::info!("portable mode: everything lives in {}", dir.display());
+                }
             }
             let store = commands::open_store(app.handle())?;
             app.manage(state::AppState::new(store));

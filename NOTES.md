@@ -935,6 +935,42 @@ CI greps the tree for anything matching a Google credential, which would have
 caught this in a text file and cannot see inside a PNG. Where the guard cannot
 reach, look at the artefact.
 
+## The first issue anyone opened
+
+Someone asked for a portable version. The AppImage was already portable in the
+sense of needing no installation — and still wrote a database, a log and a
+keychain entry into the user's home folder, so running it on a borrowed machine
+left a list of who mails them behind on it. For an app whose whole argument is
+that the data stays yours, that is the wrong half of the promise to keep.
+
+Portable mode puts everything in a `hush-data` folder beside the executable.
+Opt-in and explicit — a `hush-portable.txt` marker or `HUSH_PORTABLE=1` —
+because guessing is worse than either answer: silently writing to a read-only
+mount fails, and silently *not* writing to the home folder loses someone's scan.
+
+Two details worth keeping:
+
+**`current_exe` is wrong for an AppImage.** It unpacks into `/tmp` and runs from
+there, so "beside the executable" resolves to a temporary directory that
+vanishes. The `APPIMAGE` variable holds the path the user actually
+double-clicked, which is the one that means anything.
+
+**It deliberately does not save the connection.** A keychain entry belongs to
+the machine, which is exactly the trace being avoided, and a refresh token in a
+plain file on a memory stick is worse than signing in again. Portable mode
+reports the keychain as unavailable, which reuses the path already built for
+machines without a secret store — token in memory, connect screen says so.
+
+Verified by running it from a fake USB directory and fingerprinting the home
+folder before and after. Byte-identical.
+
+## The Windows .exe was never portable
+
+Worth noticing while answering: the `.exe` in every release is an NSIS
+*installer*, the opposite of what was asked for. Tauri had already built the
+standalone binary it wraps, and nobody was shipping it. Releases now carry
+`Hush-portable-*.exe` as well.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

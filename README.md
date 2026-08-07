@@ -18,6 +18,12 @@ deleted.
 [Why not a website?](#why-a-desktop-app-and-not-a-website) ·
 [FAQ](#questions-people-actually-ask)
 
+### See it work
+
+[![Hush — unsubscribe from every mailing list in your inbox](https://img.youtube.com/vi/snzI59KNEbI/maxresdefault.jpg)](https://youtu.be/snzI59KNEbI)
+
+*A run through the whole thing, start to finish.*
+
 </div>
 
 ---
@@ -338,6 +344,27 @@ xattr -dr com.apple.quarantine /Applications/Hush.app
 ```
 
 Only run that on a build whose checksum you've verified (see below).
+
+## Running it portable
+
+Hush can keep everything beside its own executable instead of in your home
+folder — for a USB stick, or a computer that isn't yours.
+
+1. Download the **AppImage** (Linux) or the plain **`.exe`** (Windows).
+2. Put a file called `hush-portable.txt` next to it. It can be empty.
+3. Run it.
+
+The database and log go into a `hush-data` folder beside the executable, and
+nothing is written to your home folder, your registry, or your keychain. Setting
+`HUSH_PORTABLE=1` does the same thing without the marker file.
+
+**The one trade-off:** portable mode does not save your Google connection. A
+keychain entry belongs to the machine, and the alternative — your refresh token
+sitting in a plain file on a memory stick — is worse than signing in again. So
+you reconnect each time you run it, and the machine keeps nothing.
+
+If the folder can't be written to, Hush says so in the log and falls back to
+running normally rather than refusing to start.
 
 ## Verifying the build
 

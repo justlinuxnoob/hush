@@ -166,6 +166,16 @@ impl Keychain {
 
     /// Whether a usable secret store exists on this machine.
     pub fn is_available() -> bool {
+        // Portable mode never touches the keychain. A keychain entry is tied to
+        // the machine, so writing one is exactly the trace a portable app is
+        // supposed not to leave — and the alternative, a refresh token in a
+        // plain file on a memory stick, is worse than reconnecting each time.
+        // Reporting "unavailable" reuses the path already built for machines
+        // with no secret store: the token lives in memory and the connect
+        // screen says so.
+        if crate::portable::data_dir().is_some() {
+            return false;
+        }
         keyring::Entry::new(KEYCHAIN_SERVICE, "__hush_probe__")
             .and_then(|e| match e.get_password() {
                 Ok(_) => Ok(()),
@@ -330,6 +340,10 @@ impl GoogleAuth {
 
     /// Persist the refresh token now that we know which account it belongs to.
     pub async fn persist(&self, email: &str) -> TokenStorage {
+        // Portable mode keeps nothing. See `Keychain::is_available`.
+        if crate::portable::data_dir().is_some() {
+            return TokenStorage::Memory;
+        }
         let Some(token) = self.refresh_token.read().await.clone() else {
             return TokenStorage::Memory;
         };
