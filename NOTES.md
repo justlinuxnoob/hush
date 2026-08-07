@@ -1382,3 +1382,34 @@ bank, a link-only sender, a mailto-only sender, and one already protected.
 It's behind a compile-time constant so production builds drop it entirely, and
 CI fails if it ever appears in `dist/`. This is how the list, confirm and results
 screens were verified.
+
+## Android: builds, runs, cannot sign in
+
+Real progress and a real wall, recorded so the next attempt does not start over.
+
+**Working, verified on a Pixel 7a:** compiles for arm64, installs, launches,
+renders every screen, dark mode, the setup screenshots, and opens links. Two
+bugs were fixed getting there — `tauri-plugin-single-instance` has no `init`
+off desktop, and the free `tauri_plugin_opener::open_url` always takes the
+desktop path and shells out to `xdg-open`, so every link died with `os error 2`
+until it went through the app handle's `cfg(mobile)`-aware method.
+
+**Not working:** connecting to Google. The browser opens and sign-in happens;
+the redirect back never completes.
+
+The cause is not yet known, and this is written down *without* a diagnosis on
+purpose. Three candidates, all plausible: Android freezing the process while
+the browser is in front, so the loopback listener never accepts; the browser
+declining a plain-HTTP localhost URL; or Google refusing a Desktop-type client
+used from a phone.
+
+What is clear is the shape of the proper fix, whichever it is. Loopback is the
+*desktop* OAuth pattern. Android's equivalent is a custom-scheme redirect
+handled by an intent filter — and Google only permits custom schemes on an
+**Android** client type, which is registered against the package name and the
+signing certificate's SHA-1, and carries no client secret.
+
+So Android needs its own setup flow, not a patched desktop one: a different
+client type, a different thing to paste, an intent filter, and a deep-link
+handler. That is a feature, not a fix, and guessing at it while the actual
+error is unread is how the last three mistakes happened.
