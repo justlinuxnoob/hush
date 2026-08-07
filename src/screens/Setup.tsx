@@ -233,9 +233,9 @@ export default function Setup({
                 <Ordered
                   items={[
                     "Open the page below and press Create client.",
-                    'Application type: choose Desktop app.',
-                    'Name: anything. Press Create.',
-                    "Pick Desktop app, give it any name, and press Create. Then press Download JSON, open that file, and paste all of it into either box below — both fill in by themselves.",
+                    "Application type: choose Desktop app.",
+                    "Name: anything at all. Press Create.",
+                    "Press Download JSON, open that file, and paste all of it into either box below — both fill in by themselves.",
                   ]}
                 />
                 <OpenButton

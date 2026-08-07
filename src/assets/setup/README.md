@@ -6,6 +6,10 @@ picked up by filename, so adding one is not a code change.
 
 Missing files are fine: the wizard simply shows no picture for that step.
 
+**These are filled in.** `step-1` through `step-5c` are real captures of
+Google's console. If Google redesigns a page, replacing the file is the whole
+fix — no code changes.
+
 A step can have several pictures. `step-5.png`, `step-5b.png` and `step-5c.png`
 all belong to step 5 and show in that order — the last step is three separate
 actions, so one image cannot carry it.

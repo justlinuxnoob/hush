@@ -901,6 +901,40 @@ gets far enough to complain about it — the people it fails are gone. And: it
 took a screenshot again. That is three separate times now that looking found
 something reading could not.
 
+## Twice wrong about a file that was there
+
+Asked to add the setup screenshots, and reported twice — confidently — that it
+was impossible because they had been pasted from the clipboard and never
+written to disk.
+
+They were in `~/Pictures/Screenshots`, nine of them, timestamped to the minute
+they were sent.
+
+Both searches were broken. The first used `-newermt '-40 minutes'` when they
+were already older than that. The second used `-newermt 'today 00:00'`, run the
+following day, which excludes everything from the day they were taken. Each
+returned nothing, and instead of doubting the search I built an explanation for
+the absence and stated it as fact.
+
+The tell was available and ignored: "no files exist" is a much stranger claim
+than "my search is wrong", and the second search's own output — zero images
+anywhere on a desktop machine in active use — should have been read as an
+implausible result rather than a finding.
+
+## Nearly committing a client secret
+
+The last screenshot shows the OAuth dialog, which displays the Client ID and
+the Client secret alongside the Download JSON link. It had to be cropped to the
+link.
+
+The first crop, by eye from coordinates, landed square on the Client secret.
+Caught only by rendering the cropped file and looking at it. The second attempt
+was right, and was also checked.
+
+CI greps the tree for anything matching a Google credential, which would have
+caught this in a text file and cannot see inside a PNG. Where the guard cannot
+reach, look at the artefact.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically
