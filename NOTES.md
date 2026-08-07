@@ -1005,6 +1005,28 @@ Both are the same mistake. A feature placed where it is *technically* correct
 rather than where the person is, is indistinguishable from a feature that was
 never built — and the bug report you get is "you didn't do it", which is fair.
 
+## Counting in the app's unit instead of the user's
+
+Asked whether the design was "psychologically nice", which is a better question
+than any I had asked myself. Walking the flow and looking at it answered it:
+calm, and unrewarding.
+
+**The action bar counted senders.** "2 senders selected." Nobody wants fewer
+senders — they want fewer emails, and the list already knew that number for
+every row. It reads "2 senders · 1,000 emails" now, so ticking a box adds up to
+something instead of incrementing a tally in a unit the user never chose.
+
+**The results screen opened on three caveats.** Headline, then "old emails were
+left alone", then "which is as far as anything can be confirmed", then "nothing
+in email reports back". Every one true and every one still there — but a screen
+that leads with qualifications reads as an apology for the thing you just did.
+The size of the win goes first now: *that's 1,000 emails they've sent you, and
+the next one won't arrive.* Then the caveats.
+
+The count comes from the store, for the addresses that actually succeeded, so
+it can never claim more than happened. Honesty was never the problem — order
+was.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

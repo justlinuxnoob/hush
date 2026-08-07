@@ -202,6 +202,16 @@ export default function SenderList({
     (s) => selected.has(s.address) && s.assessment.caution
   ).length;
 
+  // What the selection is actually worth, in the unit people care about.
+  //
+  // The bar counted senders, which is the app's unit and not the user's.
+  // Nobody wants "fewer senders" — they want fewer emails, and the list
+  // already knows that number for every row. Showing it makes ticking a box
+  // add up to something instead of just incrementing a tally.
+  const selectedMail = senders
+    .filter((s) => selected.has(s.address))
+    .reduce((n, s) => n + s.message_count, 0);
+
   return (
     <div className="list-shell">
       <div className="toolbar">
@@ -331,7 +341,7 @@ export default function SenderList({
           <strong className="tabular">
             {selected.size === 0
               ? "Nothing selected"
-              : `${plural(selected.size, "sender")} selected`}
+              : `${plural(selected.size, "sender")} · ${formatCount(selectedMail)} emails`}
           </strong>
           {flaggedSelected > 0 && (
             <span className="small" style={{ color: "var(--caution)" }}>

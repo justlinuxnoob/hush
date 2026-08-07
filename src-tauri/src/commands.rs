@@ -582,6 +582,20 @@ pub async fn run_unsubscribe(
 
     *state.run_cancel.write().await = None;
 
+    // Worked out before the outcomes are recorded, from the addresses that
+    // actually succeeded — never from what was asked for.
+    report.stopped_message_count = report
+        .outcomes
+        .iter()
+        .filter(|o| {
+            matches!(
+                o.status,
+                crate::model::OutcomeStatus::Done | crate::model::OutcomeStatus::Sent
+            )
+        })
+        .filter_map(|o| state.store.message_count_for(&account, &o.address).ok())
+        .sum();
+
     for outcome in &report.outcomes {
         state.store.record_outcome(&account, outcome)?;
     }

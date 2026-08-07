@@ -171,6 +171,17 @@ impl Store {
         Ok(())
     }
 
+    /// How many messages one sender has sent, for the results screen.
+    pub fn message_count_for(&self, account: &str, sender: &str) -> Result<u64> {
+        let conn = self.lock()?;
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE account = ?1 AND sender = ?2",
+            params![account, sender],
+            |r| r.get(0),
+        )?;
+        Ok(n as u64)
+    }
+
     pub fn message_count(&self, account: &str) -> Result<u64> {
         let conn = self.lock()?;
         // SQLite counts are signed; the cast is safe for any real mailbox.

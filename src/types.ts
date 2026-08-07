@@ -158,6 +158,8 @@ export interface RemovalReport {
 
 export interface RunReport {
   outcomes: Outcome[];
+  /** Mail sent by the senders actually dealt with — the number people care about. */
+  stopped_message_count: number;
   trash: TrashReport | null;
   blocked: BlockReport | null;
 }

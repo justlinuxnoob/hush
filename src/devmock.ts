@@ -189,8 +189,12 @@ function run(
       .filter((s) => s.message_count > 0);
   }
 
+  const handled = new Set(outcomes.filter((o) => o.status === "done" || o.status === "sent").map((o) => o.address));
   return {
     outcomes,
+    stopped_message_count: senders
+      .filter((s) => handled.has(s.address))
+      .reduce((n, s) => n + s.message_count, 0),
     blocked: blockFuture
       ? {
           blocked: selectable(addresses).length,

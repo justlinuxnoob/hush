@@ -117,6 +117,12 @@ pub struct RunProgress {
 #[derive(Debug, Default, Serialize)]
 pub struct RunReport {
     pub outcomes: Vec<Outcome>,
+    /// How much mail the senders that were actually dealt with had sent.
+    ///
+    /// The number people care about. "Two senders unsubscribed" is the app's
+    /// unit; "that's 1,000 emails" is theirs. Counted from the store for the
+    /// addresses that succeeded, so it can never claim more than happened.
+    pub stopped_message_count: u64,
     /// Present only when the user asked for their old mail to be cleared out.
     pub trash: Option<TrashReport>,
     /// Present only when the user asked for future mail to be blocked.

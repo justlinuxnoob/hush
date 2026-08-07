@@ -1,4 +1,4 @@
-import { Notice, plural } from "../components/ui";
+import { Notice, formatCount, plural } from "../components/ui";
 import { type RunReport } from "../types";
 
 /**
@@ -25,6 +25,10 @@ export default function Results({
   const blockedOk = (report.blocked?.blocked ?? 0) > 0;
   const binned = report.trash?.trashed ?? 0;
 
+  // How much mail the senders dealt with had actually sent. Counted from the
+  // run's own outcomes so it can never claim more than happened.
+  const stopped = report.stopped_message_count;
+
   // A bin-only run has no unsubscribe outcomes at all, and "Nothing to report"
   // would be a strange thing to say after moving five hundred emails.
   const headline = summarise({
@@ -39,6 +43,17 @@ export default function Results({
       <div className="inner stack stack-8">
         <div className="stack stack-3">
           <h1>{headline}</h1>
+          {/* The number that means something, before any of the caveats.
+              The caveats are all true and all still here — but a screen that
+              opens on three qualifications reads as an apology for the thing
+              you just did. */}
+          {stopped > 0 && (
+            <p className="lede">
+              That's {formatCount(stopped)}{" "}
+              {stopped === 1 ? "email" : "emails"} they've sent you — and the
+              next one won't arrive.
+            </p>
+          )}
         </div>
 
         {!report.trash && (
