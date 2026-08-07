@@ -31,6 +31,7 @@ export default function Blocks({
   onStatusChange: (s: Status) => void;
 }) {
   const [filters, setFilters] = useState<ManagedFilter[] | null>(null);
+  const [query, setQuery] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
 
@@ -114,8 +115,16 @@ export default function Blocks({
     );
   }
 
-  const mine = (filters ?? []).filter((f) => f.mine);
-  const theirs = (filters ?? []).filter((f) => !f.mine);
+  // Matches the address and what the filter does, so "trash" finds every
+  // block set to delete and a domain finds every address under it.
+  const q = query.trim().toLowerCase();
+  const matches = (f: ManagedFilter) =>
+    !q || `${f.address} ${f.summary}`.toLowerCase().includes(q);
+
+  const all = filters ?? [];
+  const mine = all.filter((f) => f.mine && matches(f));
+  const theirs = all.filter((f) => !f.mine && matches(f));
+  const hidden = all.length - mine.length - theirs.length;
 
   return (
     <Shell onClose={onClose}>
@@ -145,10 +154,35 @@ export default function Blocks({
         </Notice>
       )}
 
+      {filters !== null && filters.length > 0 && (
+        <div className="search">
+          <input
+            type="search"
+            placeholder="Search blocked senders"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search blocked senders"
+          />
+        </div>
+      )}
+
       {filters === null ? (
         <div className="row">
           <span className="spinner" aria-hidden="true" />
           <span className="muted">Asking Gmail what's blocked…</span>
+        </div>
+      ) : mine.length === 0 && theirs.length === 0 && hidden > 0 ? (
+        <div className="panel stack stack-2">
+          <h3>Nothing matches "{query}"</h3>
+          <p className="muted">
+            {plural(hidden, "filter")} on this account, none with that in the
+            address or the action.
+          </p>
+          <div>
+            <button className="btn-secondary" onClick={() => setQuery("")}>
+              Clear the search
+            </button>
+          </div>
         </div>
       ) : mine.length === 0 && theirs.length === 0 ? (
         <div className="panel stack stack-2">

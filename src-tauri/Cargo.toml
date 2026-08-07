@@ -1,6 +1,6 @@
 [package]
 name = "hush"
-version = "0.12.2"
+version = "0.12.3"
 description = "Quietly unsubscribe from bulk email"
 authors = ["Hush contributors"]
 license = "MIT"
