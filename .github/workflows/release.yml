@@ -94,9 +94,14 @@ jobs:
           # produced it — the standalone binary that the installer wraps. It
           # needs no install, no registry, and with a hush-portable.txt beside
           # it keeps its data in the same folder.
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            exe="src-tauri/target/${{ matrix.target }}/release/hush.exe"
-            [ -f "$exe" ] && cp "$exe" "out/Hush-portable-${{ matrix.target }}.exe"
+          # Keyed on the file existing, not on a runner name. The first
+          # attempt tested for "windows-latest" while the matrix says
+          # "windows-2022", so it silently never ran and the release shipped
+          # without the thing it was added for.
+          exe="src-tauri/target/${{ matrix.target }}/release/hush.exe"
+          if [ -f "$exe" ]; then
+            cp "$exe" "out/Hush-portable-${{ matrix.target }}.exe"
+            echo "added the standalone Windows binary"
           fi
 
           ls -la out

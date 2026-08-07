@@ -964,6 +964,19 @@ machines without a secret store — token in memory, connect screen says so.
 Verified by running it from a fake USB directory and fingerprinting the home
 folder before and after. Byte-identical.
 
+## A condition on a name that had already drifted
+
+The step that adds the standalone Windows binary tested for `windows-latest`.
+The matrix says `windows-2022`. So it never ran, the release shipped without
+the file, and nothing failed — a skipped conditional is not an error.
+
+Caught only by listing the release assets afterwards instead of trusting that
+green means done. It keys on the file existing now, which cannot drift.
+
+The general shape: **a condition that silently does nothing is worse than one
+that breaks.** Anything guarded by a name someone else controls needs a check
+that the guarded thing actually happened.
+
 ## The Windows .exe was never portable
 
 Worth noticing while answering: the `.exe` in every release is an NSIS
