@@ -82,6 +82,11 @@ export default function Setup({
           <Steps total={STEPS} current={step} />
           <span className="muted small">
             Step {step + 1} of {STEPS}
+            {/* The reassurance belongs here, not only on the welcome screen.
+                This is the intimidating part — six pages of Google's console —
+                and someone who has already clicked past the welcome text has
+                no reminder that it is short. */}
+            {" · about two minutes in total"}
           </span>
         </div>
 

@@ -984,6 +984,27 @@ Worth noticing while answering: the `.exe` in every release is an NSIS
 standalone binary it wraps, and nobody was shipping it. Releases now carry
 `Hush-portable-*.exe` as well.
 
+## Reassurance on the wrong screen, a clock nobody saw
+
+Two things reported as missing that had both been built, in places where they
+did no work.
+
+**"About two minutes" was only on the welcome screen** — one grey line beside
+Get started. Click through and you are in six pages of Google's cloud console
+with no reminder that it is short. The reassurance was sitting where nobody is
+nervous, and absent from the part that scares people. It is in the step header
+now, on every page of the wizard.
+
+**The seven-day countdown only appeared at two days or fewer.** Which sounds
+restrained and means that for five days out of seven there is no sign the clock
+exists — so the honest report is "there's no timer anywhere". It is always on
+screen once connected now: quiet grey while there is time, amber for the last
+two days.
+
+Both are the same mistake. A feature placed where it is *technically* correct
+rather than where the person is, is indistinguishable from a feature that was
+never built — and the bug report you get is "you didn't do it", which is fair.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

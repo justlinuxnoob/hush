@@ -111,13 +111,15 @@ export default function App() {
           <div className="spacer" />
           {status.email && <span className="muted small">{status.email}</span>}
           {/* Google expires Testing-mode connections after seven days. It is
-              not avoidable, but it should never be a surprise — so the last
-              two days say so where the user already looks. */}
-          {status.connected &&
-            status.days_left !== null &&
-            status.days_left <= 2 && (
+              not avoidable, but it should never be a surprise — so it is always
+              on screen once connected, quiet until the last two days and then
+              amber. Showing it only near the end meant that for five days out
+              of seven there was no sign the clock existed at all. */}
+          {status.connected && status.days_left !== null && (
               <button
-                className="badge badge-caution"
+                className={
+                  status.days_left <= 2 ? "badge badge-caution" : "badge badge-neutral"
+                }
                 title="Google expires connections for projects in Testing mode after seven days."
                 onClick={() => setScreen("connect")}
               >
@@ -125,9 +127,9 @@ export default function App() {
                   ? "Connection ends today — reconnect"
                   : status.days_left === 1
                     ? "1 day left — reconnect"
-                    : `${status.days_left} days left — reconnect`}
+                    : `${status.days_left} days of access left`}
               </button>
-            )}
+          )}
           {!status.connected && screen !== "settings" && (
             <button className="btn-secondary btn-small" onClick={() => setScreen("connect")}>
               Reconnect
