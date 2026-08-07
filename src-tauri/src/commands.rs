@@ -23,7 +23,14 @@ use crate::state::{
     SETTING_CONNECTED_MS, SETTING_GRANTED, SETTING_SEEN_WELCOME,
 };
 use crate::store::Store;
+// The free `tauri_plugin_opener::open_url` always takes the desktop path — it
+// shells out to `xdg-open`, which does not exist on Android, so every link
+// failed there with "No such file or directory (os error 2)". The trait method
+// on the app handle is the one that is `cfg(mobile)`-aware and fires a real
+// Android Intent. Found by reading the plugin source after seeing the error on
+// a Pixel.
 use crate::unsub::{BacklogAction, Executor, PlannedAction, RunReport, TrashReport, UnsubRequest};
+use tauri_plugin_opener::OpenerExt;
 
 /// Emitted repeatedly while a scan runs.
 pub const EVENT_SCAN_PROGRESS: &str = "scan-progress";
@@ -163,6 +170,7 @@ pub async fn save_credentials(
 /// is ever inferred, and both default to off.
 #[tauri::command]
 pub async fn connect(
+    app: AppHandle,
     state: State<'_, AppState>,
     allow_delete: bool,
     allow_block: bool,
@@ -186,7 +194,8 @@ pub async fn connect(
 
     let granted = auth
         .connect(&scopes, &cancel, |url| {
-            tauri_plugin_opener::open_url(url, None::<&str>)
+            app.opener()
+                .open_url(url, None::<&str>)
                 .map_err(|e| Error::Other(format!("Couldn't open your browser: {e}")))
         })
         .await;
@@ -981,7 +990,7 @@ pub async fn outcomes(state: State<'_, AppState>) -> Result<Vec<Outcome>> {
 
 /// Open a link the user asked to open. Only ever called from a click.
 #[tauri::command]
-pub async fn open_link(url: String) -> Result<()> {
+pub async fn open_link(app: AppHandle, url: String) -> Result<()> {
     // The interface only offers https links, but this is the last gate before
     // the operating system acts, so it re-checks rather than assuming.
     let parsed =
@@ -989,7 +998,8 @@ pub async fn open_link(url: String) -> Result<()> {
     if !matches!(parsed.scheme(), "https" | "http" | "mailto") {
         return Err(Error::Other("That link can't be opened.".into()));
     }
-    tauri_plugin_opener::open_url(&url, None::<&str>)
+    app.opener()
+        .open_url(url, None::<&str>)
         .map_err(|e| Error::Other(format!("Couldn't open that link: {e}")))
 }
 
@@ -1002,7 +1012,8 @@ pub async fn open_link(url: String) -> Result<()> {
 #[tauri::command]
 pub async fn open_data_folder(app: AppHandle) -> Result<()> {
     let dir = data_dir(&app).ok_or_else(|| Error::Storage("couldn't find Hush's folder".into()))?;
-    tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>)
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| Error::Other(format!("Couldn't open that folder: {e}")))
 }
 

@@ -21,35 +21,27 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
           <Wordmark />
           <h1>Fewer emails, without losing the ones you need.</h1>
           <p className="lede">
-            Hush finds everyone who mails you in bulk, shows how much each one
-            sends, and unsubscribes from the ones you pick. What it can't
-            unsubscribe, it filters — so nothing is ever left for you to do.
+            It finds everyone who mails you in bulk and unsubscribes from the
+            ones you pick.
           </p>
         </div>
 
-        <div className="promises">
-          <Promise
-            title="Never deletes your mail"
-            body="Old newsletters move to Trash only if you ask, and Gmail keeps those for 30 days."
-          />
-          <Promise
-            title="Never reads what's inside"
-            body="Only who sent it, the subject, and when. It holds no permission that would allow more."
-          />
-          <Promise
-            title="Never touches receipts"
-            body="Order confirmations and sign-in codes carry no unsubscribe option, so they're never offered."
-          />
-          <Promise
-            title="Never sends your data anywhere"
-            body="There is no Hush server. No telemetry, no accounts, nothing measured."
-          />
-        </div>
+        {/* Titles only.
+            With a sentence of body each, four promises are four paragraphs —
+            and on a phone the two-column grid collapses to one, so it became
+            the wall of text it was meant to replace. The titles alone are the
+            pitch; anyone who wants the reasoning has the README and, more to
+            the point, the app's actual behaviour. */}
+        <ul className="promises">
+          <li>Never deletes your mail</li>
+          <li>Never reads what's inside</li>
+          <li>Never touches receipts</li>
+          <li>Never sends anything anywhere</li>
+        </ul>
 
         <p className="muted small">
-          Setting up means clicking through a few pages on Google's site, once —
-          Hush opens each one and names the button to press. That's the price of
-          there being no server in the middle.
+          Connecting takes a couple of minutes on Google's site, once. Hush opens
+          each page and names the button to press.
         </p>
 
         <div className="decide row">
@@ -63,11 +55,3 @@ export default function Welcome({ onNext }: { onNext: () => void }) {
   );
 }
 
-function Promise({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="promise">
-      <span className="promise-title">{title}</span>
-      <span className="promise-body">{body}</span>
-    </div>
-  );
-}

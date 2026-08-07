@@ -38,6 +38,8 @@ export default function Confirm({
 }) {
   const [plan, setPlan] = useState<PlannedAction[] | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  // Collapsed by default. See the note beside the options block below.
+  const [showOptions, setShowOptions] = useState(false);
   const [acceptedFlagged, setAcceptedFlagged] = useState(false);
   // Two independent questions: what happens to future mail, and what happens
   // to the pile already sitting there. Double protection is the default,
@@ -175,6 +177,27 @@ export default function Confirm({
     if (next === "archive") setAcceptedBacklogTrash(false);
   }
 
+  // The whole decision in one sentence, so the collapsed screen still says
+  // exactly what pressing the button does.
+  const summaryTitle =
+    future === "block"
+      ? "Block them"
+      : future === "both"
+        ? "Unsubscribe and block them"
+        : "Unsubscribe";
+  const summaryDetail = [
+    blocking
+      ? blockAction === "trash"
+        ? "Future mail goes to Trash"
+        : "Future mail skips your inbox"
+      : "They're asked to stop",
+    binBacklog
+      ? backlogAction === "trash"
+        ? `${formatCount(binnable)} old emails to Trash`
+        : `${formatCount(binnable)} old emails archived`
+      : "Old emails left alone",
+  ].join(" · ");
+
   return (
     <div className="centre">
       <div className="inner stack stack-6">
@@ -242,6 +265,31 @@ export default function Confirm({
           </div>
         )}
 
+        {/* Everything below is hidden by default.
+            This screen carried 649 words, seven choice buttons and four
+            checkboxes at once — measured, after three rounds of shortening the
+            sentences, which was the wrong lever. The defaults are the safe ones
+            and always were, so someone who agrees with them should see a
+            sentence and a button, not a form. Nothing is removed; it is behind
+            a link for anyone who wants it. */}
+        <div className="card stack stack-3">
+          <div className="row">
+            <div className="stack" style={{ flex: 1, minWidth: 0 }}>
+              <strong>{summaryTitle}</strong>
+              <span className="muted small">{summaryDetail}</span>
+            </div>
+            <button
+              className="btn-quiet btn-small"
+              onClick={() => setShowOptions((v) => !v)}
+              aria-expanded={showOptions}
+            >
+              {showOptions ? "Done" : "Change"}
+            </button>
+          </div>
+        </div>
+
+        {showOptions && (
+          <>
         <div className="card stack stack-4">
           <div className="stack">
             <h3>Stopping future emails</h3>
@@ -506,6 +554,9 @@ export default function Confirm({
               </div>
             )}
           </div>
+        )}
+
+          </>
         )}
 
         <div className="stack stack-3">

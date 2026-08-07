@@ -1027,6 +1027,33 @@ The count comes from the store, for the addresses that actually succeeded, so
 it can never claim more than happened. Honesty was never the problem — order
 was.
 
+## Shortening sentences was the wrong lever
+
+"it just feels bloated… it's too much text." Said three times, in different
+words, after two rounds of tightening copy. So: measure the screen instead of
+editing it.
+
+The confirm screen carried **649 words, seven choice buttons and four
+checkboxes at once.** No sentence-level edit fixes eleven controls. The problem
+was never the prose, it was that every decision the app can make was on screen
+simultaneously, competing, for a user who almost always wants the default.
+
+The defaults were already the safe ones. So they are now a single line —
+*"Unsubscribe and block them / Future mail skips your inbox · Old emails left
+alone"* — with one **Change** button beside it. **190 words visible, two
+buttons.** Nothing was deleted; everything is one click away, and every safety
+gate is untouched: the flagged-sender warning still shows unconditionally, and
+trashing still needs its explicit tick inside the expanded panel.
+
+The welcome screen got the same treatment for the same reason. Four promises
+with a sentence each became four titles with a tick, because the titles *are*
+the promise and on a phone the two-column grid collapsed into the wall of text
+it had been built to replace.
+
+The lesson is about how the complaint was phrased. "Too much text" sounds like a
+copy problem and was a structure problem — and I spent two releases on the
+reading before measuring the thing.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

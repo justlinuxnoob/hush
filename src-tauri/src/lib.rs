@@ -35,21 +35,32 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // The only plugin. It opens the consent page and unsubscribe links in
-        // the user's real browser; the web layer cannot call it directly.
-        // Two copies of Hush on one database would both scan, doubling the
-        // API quota against a limit that already caps a big mailbox at forty
-        // minutes — and clicking a launcher twice is not a request for a
-        // second app. The existing window comes forward instead.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // Desktop only, and not merely because the crate is: on Android the system
+    // already guarantees one instance of an activity, so there is nothing to
+    // guard against. `init` does not even exist off desktop, which is how the
+    // first Android build failed.
+    //
+    // Two copies on one database would both scan, doubling an API quota that
+    // already caps a large mailbox at forty minutes — and clicking a launcher
+    // twice is not a request for a second app.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager as _;
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
-        }))
+        }));
+    }
+
+    builder
+        // Opens the consent page and unsubscribe links in the user's real
+        // browser; the web layer cannot call it directly.
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // Before anything else, so a failure during setup is recorded too.

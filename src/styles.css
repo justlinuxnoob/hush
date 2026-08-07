@@ -1257,50 +1257,51 @@ input.mono {
   background: var(--paper-sunken);
 }
 
+
 /* --- the promises on the welcome screen ---------------------------------- */
 
 /*
- * A grid, not a bulleted list.
+ * Four short lines, each with a tick. Not cards, not paragraphs.
  *
- * These four claims are the reason to trust the app, so they cannot be cut —
- * but as four paragraphs under the heading "What it will never do" they were
- * a wall of text that opened on a list of negatives. Two columns of one-liners
- * can be taken in at a glance and take up less than half the height.
+ * They began as four paragraphs, became four cards with body text, and were
+ * still a wall of text on a phone where the grid collapses to one column. The
+ * title is the promise; the sentence explaining it was reassurance nobody needs
+ * before they have decided to care.
  */
 .promises {
+  list-style: none;
+  margin: 0;
+  padding: calc(var(--step) * 4) calc(var(--step) * 5);
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--rule);
+  gap: calc(var(--step) * 2.5);
+  background: var(--paper-raised);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
-  overflow: hidden;
-}
-
-@media (max-width: 640px) {
-  .promises {
-    grid-template-columns: 1fr;
-  }
-}
-
-.promise {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--step) * 1);
-  padding: calc(var(--step) * 4);
-  background: var(--paper-raised);
-}
-
-.promise-title {
-  font-weight: 600;
   font-size: 0.9375rem;
-  /* The accent carries "this is a promise" without a tick-mark on every line,
-     which at four rows would read as a feature list rather than a limit. */
-  color: var(--accent);
+  font-weight: 500;
 }
 
-.promise-body {
-  color: var(--ink-soft);
-  font-size: 0.8438rem;
-  line-height: 1.5;
+.promises li {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2.5);
+}
+
+.promises li::before {
+  content: "";
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  /* A tick drawn in the accent, so the row reads as a guarantee without a
+     coloured word competing with the text beside it. */
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+@media (min-width: 720px) {
+  .promises {
+    grid-template-columns: 1fr 1fr;
+    gap: calc(var(--step) * 3) calc(var(--step) * 6);
+  }
 }
