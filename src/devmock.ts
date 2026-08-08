@@ -58,8 +58,12 @@ function sender(
     // Most bulk mail carries the header; a slice of it doesn't, standing in for
     // the receipts a shop sends from the same address.
     bulk_count: Math.max(1, Math.round(count * 0.8)),
-    first_seen_ms: now - 400 * DAY,
-    last_seen_ms: now - 2 * DAY,
+    // Varied on purpose. Every sender having the same dates made the date
+    // column meaningless to look at and made sorting by recency impossible to
+    // test — the demo agreed with any ordering, which is the same failure mode
+    // as a mock agreeing with any request.
+    first_seen_ms: now - (120 + (count % 7) * 90) * DAY,
+    last_seen_ms: now - ((count % 11) * 9 + 1) * DAY,
     frequency: "about 3 a week",
     method,
     assessment: { caution: false, score: 0, reasons: [] },

@@ -12,6 +12,21 @@ import {
 type Filter = "all" | "automatic" | "manual" | "flagged" | "handled" | "protected";
 
 /**
+ * Two ways to be worth dealing with, and they disagree more than you would
+ * think.
+ *
+ * Volume finds whoever has sent the most ever. Recency finds whoever is
+ * sending *now* — and a shop that sent five hundred emails in 2019 and stopped
+ * is not the problem a weekly newsletter is. The list only had the first.
+ */
+type Sort = "volume" | "recent";
+
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "volume", label: "Most emails" },
+  { value: "recent", label: "Most recent" },
+];
+
+/**
  * How many rows are put in the document at once.
  *
  * A big old mailbox produces well over a thousand senders, and rendering them
@@ -74,6 +89,7 @@ export default function SenderList({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<Sort>("volume");
   const [problem, setProblem] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [limit, setLimit] = useState(WINDOW);
@@ -144,13 +160,20 @@ export default function SenderList({
     });
   }, [senders, query, filter]);
 
+  const ordered = useMemo(() => {
+    if (sort === "volume") return visible;
+    // A copy: `visible` is memoised from `senders`, and sorting in place would
+    // quietly reorder the source array everything else reads from.
+    return [...visible].sort((a, b) => b.last_seen_ms - a.last_seen_ms);
+  }, [visible, sort]);
+
   // Searching or filtering produces a different list, so the window starts
   // again — otherwise a search that matches one sender at position 900 would
   // find nothing on screen.
-  useEffect(() => setLimit(WINDOW), [query, filter, senders]);
+  useEffect(() => setLimit(WINDOW), [query, filter, sort, senders]);
 
-  const shown = useMemo(() => visible.slice(0, limit), [visible, limit]);
-  const more = visible.length - shown.length;
+  const shown = useMemo(() => ordered.slice(0, limit), [ordered, limit]);
+  const more = ordered.length - shown.length;
 
   // Deliberately over `visible`, never `shown`. "Pick the automatic ones" means
   // all of them, not the sixty that happen to be in the document.
@@ -249,6 +272,19 @@ export default function SenderList({
         </div>
 
         <div className="spacer" />
+
+        <div className="row row-tight" role="group" aria-label="Sort senders">
+          {SORTS.map((o) => (
+            <button
+              key={o.value}
+              className={sort === o.value ? "btn-secondary btn-small" : "btn-quiet btn-small"}
+              aria-pressed={sort === o.value}
+              onClick={() => setSort(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {problem && (

@@ -1083,6 +1083,27 @@ have dealt with this, stop showing it to me", and only one behaved that way.
 Protected senders now move to their own tab, where they can be found and
 unprotected.
 
+## Sorting, and a mock that agreed with anything
+
+The list was always busiest-first, which answers "who has sent me the most
+ever" and not "who is sending me things now". A shop that sent five hundred
+emails in 2019 and stopped is not the problem a weekly newsletter is, and
+volume ranks it first anyway. There is a **Most recent** sort now.
+
+The part worth recording is the test. Sorting by recency reordered nothing in
+the demo, and the code was right — every mock sender had an identical
+`last_seen_ms`, so any ordering was correct and the demo confirmed whichever
+one it was given.
+
+That is the mock-agrees-with-you failure in a different costume. The first
+time it hid a dead trash feature behind a green suite; this time it would have
+hidden a working feature behind an unchanged list, and the conclusion — "the
+sort does not work" — would have been wrong in the opposite direction. Demo
+data that is uniform cannot falsify anything.
+
+The mock has varied dates now, which also makes the date column on each row
+worth looking at when judging the design.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically
