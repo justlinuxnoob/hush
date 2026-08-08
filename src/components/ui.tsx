@@ -51,7 +51,12 @@ export function Checkbox({
   disabled?: boolean;
 }) {
   return (
-    <span className="check">
+    // Clicks stop here. The row around this one also toggles selection, and
+    // without this a click on the box would fire both — the input's onChange
+    // and the row's onClick — cancelling out and looking like the checkbox is
+    // broken. Which is the exact complaint that led to the row being made
+    // clickable in the first place.
+    <span className="check" onClick={(e) => e.stopPropagation()}>
       <input
         type="checkbox"
         checked={checked}

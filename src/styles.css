@@ -672,6 +672,11 @@ input.mono {
   background: var(--paper-sunken);
 }
 
+/* The whole row is the target, so it should look like one. */
+.sender.is-pickable {
+  cursor: pointer;
+}
+
 .sender.is-selected {
   background: var(--accent-wash);
   border-color: transparent;

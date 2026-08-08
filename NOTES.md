@@ -1104,6 +1104,33 @@ data that is uniform cannot falsify anything.
 The mock has varied dates now, which also makes the date column on each row
 worth looking at when judging the design.
 
+## The checkbox was never the right target
+
+"i cant check emails make clicking the email sender anywhere select it."
+
+The hit area had already been enlarged from 20x20 to 44x44 and it still was not
+enough, which is the useful part: **the problem was not the size of the box, it
+was that a box was the target at all.** Asking someone to hit a specific small
+thing once per sender, over a list of a hundred and thirty, is the wrong
+interaction however generously it is padded.
+
+The whole row selects now. The buttons inside stop the event so they still do
+their own jobs, the expanded subject list does too — reading someone's subject
+lines is not choosing them — and the checkbox remains the focusable control for
+keyboards and screen readers, so this is a convenience on top rather than a
+replacement.
+
+One bug this created and nearly shipped: a click on the checkbox fired *both*
+the input's `onChange` and the row's `onClick`, which cancelled out. The
+checkbox would have appeared completely dead — the exact complaint that started
+this. The `.check` wrapper stops propagation.
+
+And one false alarm worth recording: the first test reported that "Show all
+emails" wrongly toggled selection. It had not. The test asserted "is it
+selected" after an earlier step had already selected it, instead of comparing
+before and after. A test that cannot tell a change from a state is not a test,
+and it nearly sent me to fix code that was already right.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

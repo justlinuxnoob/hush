@@ -507,19 +507,31 @@ const Row = memo(function Row({
   onOpen: (address: string) => void;
   onProtect: (s: Sender) => void;
 }) {
-      const isSelected = selected;
-      const isOpen = open;
-      return (
-        <div
-                        className={[
-            "sender",
-            isSelected ? "is-selected" : "",
-            s.assessment.caution ? "is-caution" : "",
-            s.never_touch ? "is-protected" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
+  const isSelected = selected;
+  const isOpen = open;
+  return (
+    <div
+      className={[
+        "sender",
+        isSelected ? "is-selected" : "",
+        s.assessment.caution ? "is-caution" : "",
+        s.never_touch ? "is-protected" : "",
+        s.never_touch ? "" : "is-pickable",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      // The whole row selects.
+      //
+      // A checkbox is a small target no matter how much its hit area is
+      // padded, and asking someone to hit one precisely for every sender in a
+      // list of a hundred and thirty is the wrong interaction entirely. The
+      // buttons inside stop the event so they still do their own job, and the
+      // checkbox stays as the focusable control for keyboards and screen
+      // readers — this is a convenience on top, not a replacement.
+      onClick={() => {
+        if (!s.never_touch) onToggle(s.address, !isSelected);
+      }}
+    >
           <div style={{ paddingTop: "2px" }}>
             <Checkbox
               checked={isSelected}
@@ -573,7 +585,12 @@ const Row = memo(function Row({
             )}
 
             {isOpen && (
-              <div className="panel stack stack-2" style={{ marginTop: "calc(var(--step)*2)" }}>
+              <div
+                className="panel stack stack-2"
+                style={{ marginTop: "calc(var(--step)*2)" }}
+                // Reading someone's subject lines is not choosing them.
+                onClick={(e) => e.stopPropagation()}
+              >
                 <span className="small muted">
                   {subjects === null
                     ? "Loading…"
@@ -601,13 +618,22 @@ const Row = memo(function Row({
               {s.message_count > 0 && (
                 <button
                   className="btn-quiet btn-small"
-                  onClick={() => onOpen(s.address)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpen(s.address);
+                  }}
                   aria-expanded={isOpen}
                 >
                   {isOpen ? "Hide their emails" : `Show all ${s.message_count} emails`}
                 </button>
               )}
-              <button className="btn-quiet btn-small" onClick={() => onProtect(s)}>
+              <button
+                className="btn-quiet btn-small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onProtect(s);
+                }}
+              >
                 {s.never_touch ? "Stop protecting" : "Never touch this one"}
               </button>
             </div>
