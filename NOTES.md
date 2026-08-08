@@ -1054,6 +1054,35 @@ The lesson is about how the complaint was phrased. "Too much text" sounds like a
 copy problem and was a structure problem — and I spent two releases on the
 reading before measuring the thing.
 
+## A twenty-pixel target
+
+"clicking the check to select it is weird, it sometimes doesn't click, feels
+like u need an angle."
+
+The hit area was **20x20 pixels** — under half the 44x44 a finger needs, and
+small for a mouse. Clicks landed a few pixels outside and did nothing, which
+does not read as a miss. It reads as the app ignoring you.
+
+Fixed with a negative inset on the invisible input, so the target is 44x44
+while nothing on screen moves. Verified by clicking four pixels from the corner
+and asserting the box ticked — a click that would have missed entirely before.
+
+Worth noting how it was reported: not "the target is too small" but "it feels
+like you need an angle". Someone describing a physical sensation of aiming is
+describing a hit-area problem, and it took measuring the element to see it.
+
+## Protecting a sender looked like it did nothing
+
+"if u click never touch this one it should disappear into another section no?
+why does it stay."
+
+Right, and it was inconsistent with itself. A finished sender drops out of the
+list; a protected one went grey and stayed exactly where it was. Both mean "I
+have dealt with this, stop showing it to me", and only one behaved that way.
+
+Protected senders now move to their own tab, where they can be found and
+unprotected.
+
 ## The user is never given homework
 
 The instruction was blunt and correct: *"if it can't accept by automatically

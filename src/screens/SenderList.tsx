@@ -9,7 +9,7 @@ import {
   type SenderMessage,
 } from "../types";
 
-type Filter = "all" | "automatic" | "manual" | "flagged" | "handled";
+type Filter = "all" | "automatic" | "manual" | "flagged" | "handled" | "protected";
 
 /**
  * How many rows are put in the document at once.
@@ -32,6 +32,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "manual", label: "Needs a click" },
   { value: "flagged", label: "Worth a look" },
   { value: "handled", label: "Already done" },
+  { value: "protected", label: "Protected" },
 ];
 
 /**
@@ -119,6 +120,13 @@ export default function SenderList({
       // like it did not happen.
       if (filter !== "handled" && isHandled(s)) return false;
 
+      // The same for anything marked never-touch. Saying "leave this one
+      // alone" and watching it sit in the list, greyed but still there, reads
+      // as the button not having worked — it had the same intent as finishing
+      // a sender and behaved differently. It moves to its own tab, where it
+      // can be found and unprotected.
+      if (filter !== "protected" && s.never_touch) return false;
+
       switch (filter) {
         case "automatic":
           return s.method.kind === "one_click";
@@ -128,6 +136,8 @@ export default function SenderList({
           return s.assessment.caution;
         case "handled":
           return isHandled(s);
+        case "protected":
+          return s.never_touch;
         default:
           return true;
       }

@@ -536,7 +536,12 @@ input.mono {
 
 .check input {
   position: absolute;
-  inset: 0;
+  /* The hit area is deliberately larger than the box you can see.
+     At the visual size — 20x20 — it was under half the 44x44 minimum a finger
+     needs, and small for a mouse too: clicks landed just outside and did
+     nothing, which reads as the app ignoring you rather than as a miss. The
+     negative inset makes the target 44x44 without moving anything on screen. */
+  inset: -12px;
   margin: 0;
   opacity: 0;
   cursor: pointer;
@@ -1300,4 +1305,15 @@ input.mono {
     grid-template-columns: 1fr 1fr;
     gap: calc(var(--step) * 3) calc(var(--step) * 6);
   }
+}
+
+/* Bare checkboxes on the confirm and blocked screens get the same treatment.
+   They sit inside a <label>, so the text is already clickable — but the box
+   itself should not be the hard part. */
+label > input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  cursor: pointer;
+  accent-color: var(--accent);
 }
